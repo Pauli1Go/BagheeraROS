@@ -1,0 +1,24 @@
+bagheera_base_driver:
+  ros__parameters:
+    port: /dev/mowgli
+    baud_rate: 115200
+    reconnect_interval: 2.0
+    command_rate: 20.0
+    command_timeout: 0.5
+    allow_unsafe_firmware: false
+    odom_frame: odom
+    base_frame: base_link
+    external_imu_frame: imu_link
+    onboard_imu_frame: base_link
+    publish_tf: true
+
+bagheera_controller:
+  ros__parameters:
+    joystick_index: 0
+    steering_axis: 0
+    throttle_axis: 3
+    deadman_button: 4
+    deadzone: 0.05
+    max_linear_speed: 0.25
+    max_angular_speed: 1.0
+    publish_rate: 20.0

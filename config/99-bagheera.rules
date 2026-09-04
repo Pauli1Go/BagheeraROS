@@ -1,0 +1,2 @@
+# Stable name for the Mowgli STM32 USB CDC interface.
+SUBSYSTEM=="tty", ATTRS{product}=="Mowgli", SYMLINK+="mowgli", MODE:="0660", TAG+="uaccess"
