@@ -1,24 +1,35 @@
 # Development
 
-The workspace targets ROS 2 Jazzy on Ubuntu 24.04. On a non-ROS development
-machine, run the pure Python tests directly. For a reproducible complete build
-with Docker:
+The deployment image is pinned to the MowgliNext 1.1.0 ROS 2 image and its
+protocol-v6 firmware. The image currently contains ROS 2 Kilted; Ubuntu on the
+Raspberry Pi remains only the Docker host.
+
+Build the complete overlay with:
 
 ```bash
-docker run --rm -v "$PWD:/ws" -w /ws ros:jazzy-ros-base \
-  bash -lc 'apt-get update && apt-get install -y python3-colcon-common-extensions python3-serial python3-pygame ros-jazzy-tf2-ros-py && source /opt/ros/jazzy/setup.bash && colcon build --symlink-install && colcon test && colcon test-result --verbose'
+docker compose build
+```
+
+Pure controller mapping tests remain independent of ROS:
+
+```bash
+PYTHONPATH=src/bagheera_base \
+  python3.11 -m unittest discover -s src/bagheera_base/test -v
 ```
 
 Hardware smoke-test order:
 
-1. Start only `bagheera_base_driver` without the unsafe override. Confirm that
-   `/battery_state`, `/diagnostics`, and available IMU topics update while drive
-   remains blocked.
-2. Put the robot on blocks and enable `allow_unsafe_firmware` explicitly.
-3. Call `/bagheera/stop` and verify both wheels remain stopped.
-4. Start controller teleoperation, hold the deadman button briefly, and verify
-   wheel directions at low `max_linear_speed` and `max_angular_speed`.
-5. Release the deadman, unplug USB, and stop the teleop process separately;
-   every case must stop motion.
-6. Only after direction and stop behavior are correct, test on the floor at low
-   speed and compare `/odom` against measured travel and rotation.
+1. Start the container with the wheels clear of the floor and do not hold the
+   controller deadman.
+2. Confirm protocol v6 handshake and live status, emergency, IMU and odometry
+   topics.
+3. Confirm that physical stop/lift/tilt inputs appear in the firmware emergency
+   message and block commands.
+4. Briefly command forward; verify both wheel and encoder directions.
+5. Release the deadman, disconnect the controller and stop the teleop process
+   separately; every case must stop motion.
+6. Only then test on the floor and calibrate `ticks_per_meter`, `wheel_track`
+   and drive/yaw PID parameters.
+
+Do not run the old `bagheera_base_driver` against MowgliNext firmware. It speaks
+the retired `MW` protocol and is retained only to document the previous PoC.

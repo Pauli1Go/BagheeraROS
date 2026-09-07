@@ -1,0 +1,22 @@
+services:
+  bagheera-base:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        MOWGLI_IMAGE: ghcr.io/mowglinext/mowglinext/mowgli-ros2:1.1.0
+    image: bagheera-ros:local
+    container_name: bagheera-base
+    network_mode: host
+    ipc: host
+    privileged: true
+    environment:
+      RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
+      ROS_AUTOMATIC_DISCOVERY_RANGE: LOCALHOST
+      SDL_VIDEODRIVER: dummy
+      SDL_AUDIODRIVER: dummy
+      PYGAME_HIDE_SUPPORT_PROMPT: "1"
+    volumes:
+      - /dev:/dev
+    restart: unless-stopped
+    stop_grace_period: 2s

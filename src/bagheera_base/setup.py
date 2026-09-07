@@ -25,6 +25,7 @@ setup(
         "console_scripts": [
             "bagheera_base_driver = bagheera_base.base_driver:main",
             "bagheera_controller = bagheera_base.controller_teleop:main",
+            "bagheera_manual_mode = bagheera_base.manual_mode:main",
         ],
     },
 )

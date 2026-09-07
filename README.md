@@ -1,37 +1,37 @@
 # BagheeraROS
 
-ROS 2 Jazzy host workspace for the Bagheera office robot. The STM32 runs the
-ROS-independent Mowgli USB protocol; this workspace translates it into standard
-ROS 2 topics and provides a game-controller proof of concept.
+ROS 2 overlay for the Bagheera office robot. MowgliNext v1.1.0 provides the
+STM32 wire protocol, hardware bridge, robot model and velocity multiplexer;
+this repository contains Bagheera-specific teleoperation and will later add
+indoor LiDAR navigation and AprilTag docking.
 
-## Current scope
+The first milestone deliberately starts no GNSS, LiDAR, Nav2, coverage, mower
+behavior or GUI components.
 
-- USB CDC driver for the Mowgli protocol
-- differential-drive conversion from `/cmd_vel`
-- encoder odometry on `/odom` and `odom -> base_link` TF
-- battery, external IMU, onboard accelerometer, panel, and diagnostics topics
-- controller teleoperation with a deadman button
-- safe stop on stale commands, disconnect, shutdown, or emergency telemetry
+## Architecture
 
-Lidar, Nav2, robot description, external sensors, and AprilTag docking are
-deliberately postponed until the base can be driven and observed reliably.
-
-## Requirements
-
-The target platform is Ubuntu 24.04 with ROS 2 Jazzy. Install ROS 2 first, then:
-
-```bash
-sudo apt update
-sudo apt install python3-colcon-common-extensions python3-rosdep python3-serial python3-pygame
-cd ~/BagheeraROS
-source /opt/ros/jazzy/setup.bash
-rosdep install --from-paths src --ignore-src -r -y
-colcon build --symlink-install
-source install/setup.bash
+```text
+game controller -> /cmd_vel_teleop -> twist_mux -> /cmd_vel
+                                                  |
+                                      mowgli_hardware bridge
+                                                  |
+                                      COBS + CRC16 over USB CDC
+                                                  |
+                                   MowgliNext STM32 firmware v1.1.0
 ```
 
-Install `config/99-bagheera.rules` on the robot computer to get a stable
-`/dev/mowgli` device name:
+The STM32 runtime connection is `/dev/mowgli` at 115200 baud. The ST-Link is
+only needed to flash or debug firmware.
+
+## Raspberry Pi requirements
+
+- Ubuntu Server 24.04 LTS, ARM64
+- Docker Engine with Compose v2
+- MowgliNext firmware from release v1.1.0, protocol version 6
+- stable `/dev/mowgli` symlink
+- controller visible below `/dev/input`
+
+Install the udev rule if `/dev/mowgli` does not already exist:
 
 ```bash
 sudo install -m 0644 config/99-bagheera.rules /etc/udev/rules.d/
@@ -39,61 +39,73 @@ sudo udevadm control --reload-rules
 sudo udevadm trigger
 ```
 
-## Manual-control PoC
+## Build and start
 
-First keep the drive wheels clear of the floor. The currently built Mowgli
-firmware advertises that its periodic safety controller is disabled, so motion
-requires an explicit test override:
-
-```bash
-ros2 launch bagheera_base manual_control.launch.py \
-  serial_port:=/dev/mowgli \
-  allow_unsafe_firmware:=true
-```
-
-Hold controller button 4 (usually the left shoulder button) while driving:
-
-- axis 3: forward/reverse
-- axis 0: steering
-- release the deadman button: publish zero once, then the base driver stops and
-  disables the drive latch after its host timeout
-
-Controller layouts differ. Override the parameters when necessary:
+The image is derived from the released multi-architecture MowgliNext ROS 2
+image. ROS itself is not installed on the Ubuntu host.
 
 ```bash
-ros2 launch bagheera_base manual_control.launch.py \
-  allow_unsafe_firmware:=true joystick_index:=0 deadman_button:=4 \
-  throttle_axis:=3 steering_axis:=0
+git clone https://github.com/Pauli1Go/BagheeraROS.git
+cd BagheeraROS
+docker compose build
+docker compose up
 ```
 
-The blade motor is not addressed anywhere in this workspace.
+The launch starts only:
 
-## ROS interfaces
+- MowgliNext `robot_state_publisher`
+- MowgliNext `hardware_bridge_node`
+- MowgliNext `twist_mux`
+- `bagheera_manual_mode`
+- `bagheera_controller`
 
-| Interface | Type | Direction |
-|---|---|---|
-| `/cmd_vel` | `geometry_msgs/msg/TwistStamped` | subscribed |
-| `/odom` | `nav_msgs/msg/Odometry` | published |
-| `/battery_state` | `sensor_msgs/msg/BatteryState` | published |
-| `/imu/data_raw` | `sensor_msgs/msg/Imu` | published |
-| `/imu/mag` | `sensor_msgs/msg/MagneticField` | published |
-| `/imu/mag_raw` | `sensor_msgs/msg/MagneticField` | published |
-| `/imu_onboard/data_raw` | `sensor_msgs/msg/Imu` | published |
-| `/imu_onboard/temperature` | `sensor_msgs/msg/Temperature` | published |
-| `/bagheera/panel_buttons` | `std_msgs/msg/UInt16MultiArray` | published |
-| `/diagnostics` | `diagnostic_msgs/msg/DiagnosticArray` | published |
-| `/bagheera/stop` | `std_srvs/srv/Trigger` | service |
+Hold controller button 4 while driving. The default mapping is axis 3 for
+forward/reverse and axis 2 for steering, so the right stick controls both.
+The current limits are 0.50 m/s linear and 1.50 rad/s angular.
 
-The base driver is intentionally the only process that opens the STM32 serial
-device. Teleoperation and future Nav2 integration both use `/cmd_vel`.
+Keep both drive wheels clear of the floor for the first test. Releasing the
+deadman button sends zero velocity; loss of commands is additionally bounded
+by the MowgliNext firmware watchdog.
 
-## Development checks
-
-Pure protocol and kinematics tests run without ROS:
+Run in the background after validation:
 
 ```bash
-python3.11 -m unittest discover -s src/bagheera_base/test -v
+docker compose up -d
+docker compose logs -f bagheera-base
 ```
 
-A full ROS build is done with `colcon build` on Jazzy (or in the provided
-development container command documented in `docs/development.md`).
+Stop explicitly with:
+
+```bash
+docker compose down
+```
+
+## Checks
+
+Open a shell in the running container:
+
+```bash
+docker exec -it bagheera-base bash
+```
+
+Then inspect the firmware link and telemetry:
+
+```bash
+ros2 topic echo /hardware_bridge/status --once
+ros2 topic echo /hardware_bridge/emergency --once
+ros2 topic echo /wheel_odom --once
+ros2 topic echo /imu/data --once
+ros2 topic hz /cmd_vel_teleop
+```
+
+The old Python `base_driver.py` and its `MW` protocol implementation remain in
+the repository only as migration reference. `manual_control.launch.py` never
+starts them; the only process opening `/dev/mowgli` is MowgliNext's C++ bridge.
+
+## Next milestones
+
+1. Validate USB reconnect, emergency inputs, controller deadman, wheel polarity,
+   encoder direction and odometry scale on the real base.
+2. Move to a long-supported ROS 2 base while keeping the MowgliNext protocol.
+3. Add the selected 2D LiDAR, `slam_toolbox`/AMCL and Nav2 for indoor use.
+4. Add camera-based AprilTag docking and charging verification.

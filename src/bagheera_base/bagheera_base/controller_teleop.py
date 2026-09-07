@@ -19,13 +19,14 @@ class ControllerTeleop(Node):
     def __init__(self) -> None:
         super().__init__("bagheera_controller")
         self.declare_parameter("joystick_index", 0)
-        self.declare_parameter("steering_axis", 0)
+        self.declare_parameter("steering_axis", 2)
         self.declare_parameter("throttle_axis", 3)
         self.declare_parameter("deadman_button", 4)
         self.declare_parameter("deadzone", 0.05)
         self.declare_parameter("max_linear_speed", 0.25)
-        self.declare_parameter("max_angular_speed", 1.0)
+        self.declare_parameter("max_angular_speed", 1.5)
         self.declare_parameter("publish_rate", 20.0)
+        self.declare_parameter("cmd_vel_topic", "/cmd_vel_teleop")
 
         self._joystick_index = self.get_parameter("joystick_index").value
         self._steering_axis = self.get_parameter("steering_axis").value
@@ -34,6 +35,7 @@ class ControllerTeleop(Node):
         self._deadzone = self.get_parameter("deadzone").value
         self._max_linear = self.get_parameter("max_linear_speed").value
         self._max_angular = self.get_parameter("max_angular_speed").value
+        cmd_vel_topic = self.get_parameter("cmd_vel_topic").value
         publish_rate = self.get_parameter("publish_rate").value
         if publish_rate <= 0.0:
             raise ValueError("publish_rate must be positive")
@@ -44,10 +46,11 @@ class ControllerTeleop(Node):
         self._joystick: Optional[pygame.joystick.Joystick] = None
         self._last_deadman = False
         self._missing_logged = False
-        self._publisher = self.create_publisher(TwistStamped, "/cmd_vel", 10)
+        self._publisher = self.create_publisher(TwistStamped, cmd_vel_topic, 10)
         self._timer = self.create_timer(1.0 / publish_rate, self._tick)
         self.get_logger().info(
-            "Controller teleop ready; hold button %d to drive" % self._deadman_button
+            "Controller teleop ready on %s; hold button %d to drive"
+            % (cmd_vel_topic, self._deadman_button)
         )
 
     def _discover_joystick(self) -> bool:

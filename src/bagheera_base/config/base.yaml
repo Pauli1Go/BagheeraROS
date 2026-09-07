@@ -14,11 +14,13 @@ bagheera_base_driver:
 
 bagheera_controller:
   ros__parameters:
+    cmd_vel_topic: /cmd_vel_teleop
     joystick_index: 0
-    steering_axis: 0
+    steering_axis: 2
     throttle_axis: 3
     deadman_button: 4
     deadzone: 0.05
-    max_linear_speed: 0.25
-    max_angular_speed: 1.0
+    # Firmware limit for the YardForce 500 drive base.
+    max_linear_speed: 0.50
+    max_angular_speed: 1.50
     publish_rate: 20.0
