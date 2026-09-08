@@ -15,6 +15,8 @@ RUN apt-get update \
       python3-pygame \
       python3-spidev \
       ros-kilted-camera-ros \
+      ros-kilted-foxglove-bridge \
+      ros-kilted-robot-localization \
  && rm -rf /var/lib/apt/lists/*
 
 RUN git clone https://github.com/YDLIDAR/YDLidar-SDK.git /opt/ydlidar-sdk-src \
@@ -32,7 +34,6 @@ RUN git clone --branch humble https://github.com/YDLIDAR/ydlidar_ros2_driver.git
  && git clone https://github.com/christianrauch/camera_ros.git src/camera_ros \
  && git -C src/camera_ros checkout "${CAMERA_ROS_REF}"
 COPY src/bagheera_base src/bagheera_base
-COPY config/mowgli_robot.yaml /ros2_ws/config/mowgli_robot.yaml
 
 RUN . /opt/ros/kilted/setup.sh \
  && . /ros2_ws/install/setup.sh \

@@ -41,6 +41,30 @@ bagheera_optical_flow:
     invert_y: false
     minimum_quality: 0
 
+bagheera_measurement_normalizer:
+  ros__parameters:
+    odom_frame_id: odom
+    base_frame_id: base_link
+    imu_frame_id: imu_link
+    camera_frame_id: camera_optical_frame
+    camera_width: 1920
+    camera_height: 1080
+    # Provisional pinhole model for Foxglove visualization only. Replace all
+    # four values after a real fisheye calibration before using camera geometry.
+    camera_nominal_fx: 960.0
+    camera_nominal_fy: 960.0
+    camera_nominal_cx: 960.0
+    camera_nominal_cy: 540.0
+    # Variances follow the 6D ROS order x/y/z/roll/pitch/yaw. Unobserved
+    # 3D axes are deliberately large instead of incorrectly claiming zero
+    # uncertainty. These are conservative starting values pending a rosbag
+    # noise characterization.
+    wheel_pose_variance: [0.04, 0.09, 1000000.0, 1000000.0, 1000000.0, 0.09]
+    wheel_twist_variance: [0.01, 0.01, 1000000.0, 1000000.0, 1000000.0, 0.0009]
+    imu_orientation_variance: [0.0027, 0.0027, 0.01]
+    imu_angular_velocity_variance: [0.0004, 0.0004, 0.0004]
+    imu_linear_acceleration_variance: [0.04, 0.04, 0.04]
+
 camera:
   ros__parameters:
     camera: 0

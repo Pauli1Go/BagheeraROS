@@ -1,0 +1,121 @@
+<?xml version="1.0"?>
+<robot name="bagheera" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <!-- REP-103: x forward, y left, z up. base_footprint lies on the floor. -->
+  <xacro:arg name="chassis_length" default="0.60"/>
+  <xacro:arg name="chassis_width" default="0.40"/>
+  <xacro:arg name="chassis_height" default="0.19"/>
+  <xacro:arg name="chassis_center_x" default="0.18"/>
+  <xacro:arg name="chassis_mass_kg" default="8.76"/>
+  <xacro:arg name="wheel_radius" default="0.04475"/>
+  <xacro:arg name="wheel_width" default="0.04"/>
+  <xacro:arg name="wheel_track" default="0.325"/>
+  <xacro:arg name="caster_radius" default="0.03"/>
+  <xacro:arg name="caster_track" default="0.36"/>
+
+  <xacro:arg name="imu_x" default="0.18"/>
+  <xacro:arg name="imu_y" default="0.0"/>
+  <xacro:arg name="imu_z" default="0.095"/>
+  <xacro:arg name="imu_roll" default="0.0"/>
+  <xacro:arg name="imu_pitch" default="0.0"/>
+  <xacro:arg name="imu_yaw" default="0.0"/>
+  <xacro:arg name="lidar_x" default="0.0"/>
+  <xacro:arg name="lidar_y" default="0.0"/>
+  <xacro:arg name="lidar_z" default="0.30"/>
+  <xacro:arg name="lidar_yaw" default="0.0"/>
+  <xacro:arg name="optical_flow_x" default="0.0"/>
+  <xacro:arg name="optical_flow_y" default="0.0"/>
+  <xacro:arg name="optical_flow_z" default="0.04525"/>
+  <xacro:arg name="camera_x" default="0.48"/>
+  <xacro:arg name="camera_y" default="0.0"/>
+  <xacro:arg name="camera_z" default="0.12"/>
+  <xacro:arg name="camera_roll" default="0.0"/>
+  <xacro:arg name="camera_pitch" default="0.0"/>
+  <xacro:arg name="camera_yaw" default="0.0"/>
+
+  <xacro:property name="caster_x" value="${float($(arg chassis_center_x)) + float($(arg chassis_length))/2.0 - float($(arg caster_radius))}"/>
+
+  <material name="bagheera_green"><color rgba="0.12 0.45 0.18 1.0"/></material>
+  <material name="wheel_grey"><color rgba="0.12 0.12 0.12 1.0"/></material>
+  <material name="sensor_black"><color rgba="0.03 0.03 0.03 1.0"/></material>
+
+  <link name="base_footprint"/>
+  <joint name="base_footprint_joint" type="fixed">
+    <parent link="base_footprint"/>
+    <child link="base_link"/>
+    <origin xyz="0 0 $(arg wheel_radius)" rpy="0 0 0"/>
+  </joint>
+
+  <link name="base_link">
+    <visual>
+      <origin xyz="$(arg chassis_center_x) 0 ${float($(arg chassis_height))/2.0}"/>
+      <geometry><box size="$(arg chassis_length) $(arg chassis_width) $(arg chassis_height)"/></geometry>
+      <material name="bagheera_green"/>
+    </visual>
+    <collision>
+      <origin xyz="$(arg chassis_center_x) 0 ${float($(arg chassis_height))/2.0}"/>
+      <geometry><box size="$(arg chassis_length) $(arg chassis_width) $(arg chassis_height)"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="$(arg chassis_center_x) 0 ${float($(arg chassis_height))/2.0}"/>
+      <mass value="$(arg chassis_mass_kg)"/>
+      <inertia ixx="0.144" ixy="0" ixz="0" iyy="0.289" iyz="0" izz="0.380"/>
+    </inertial>
+  </link>
+
+  <xacro:macro name="fixed_wheel" params="name x y radius width">
+    <link name="${name}_link">
+      <visual>
+        <origin rpy="${pi/2} 0 0"/>
+        <geometry><cylinder radius="${radius}" length="${width}"/></geometry>
+        <material name="wheel_grey"/>
+      </visual>
+      <collision>
+        <origin rpy="${pi/2} 0 0"/>
+        <geometry><cylinder radius="${radius}" length="${width}"/></geometry>
+      </collision>
+    </link>
+    <joint name="${name}_joint" type="fixed">
+      <parent link="base_link"/><child link="${name}_link"/>
+      <origin xyz="${x} ${y} 0"/>
+    </joint>
+  </xacro:macro>
+
+  <xacro:fixed_wheel name="left_wheel" x="0" y="${float($(arg wheel_track))/2.0}" radius="$(arg wheel_radius)" width="$(arg wheel_width)"/>
+  <xacro:fixed_wheel name="right_wheel" x="0" y="${-float($(arg wheel_track))/2.0}" radius="$(arg wheel_radius)" width="$(arg wheel_width)"/>
+  <xacro:fixed_wheel name="front_left_caster" x="${caster_x}" y="${float($(arg caster_track))/2.0}" radius="$(arg caster_radius)" width="0.03"/>
+  <xacro:fixed_wheel name="front_right_caster" x="${caster_x}" y="${-float($(arg caster_track))/2.0}" radius="$(arg caster_radius)" width="0.03"/>
+
+  <link name="imu_link"/>
+  <joint name="imu_joint" type="fixed">
+    <parent link="base_link"/><child link="imu_link"/>
+    <origin xyz="$(arg imu_x) $(arg imu_y) $(arg imu_z)" rpy="$(arg imu_roll) $(arg imu_pitch) $(arg imu_yaw)"/>
+  </joint>
+
+  <link name="lidar_link">
+    <visual><geometry><cylinder radius="0.036" length="0.041"/></geometry><material name="sensor_black"/></visual>
+  </link>
+  <joint name="lidar_joint" type="fixed">
+    <parent link="base_link"/><child link="lidar_link"/>
+    <origin xyz="$(arg lidar_x) $(arg lidar_y) $(arg lidar_z)" rpy="0 0 $(arg lidar_yaw)"/>
+  </joint>
+
+  <link name="pmw3901_sensor"/>
+  <joint name="pmw3901_joint" type="fixed">
+    <parent link="base_link"/><child link="pmw3901_sensor"/>
+    <origin xyz="$(arg optical_flow_x) $(arg optical_flow_y) $(arg optical_flow_z)" rpy="0 0 0"/>
+  </joint>
+
+  <link name="camera_link">
+    <visual><geometry><box size="0.025 0.025 0.012"/></geometry><material name="sensor_black"/></visual>
+  </link>
+  <joint name="camera_joint" type="fixed">
+    <parent link="base_link"/><child link="camera_link"/>
+    <origin xyz="$(arg camera_x) $(arg camera_y) $(arg camera_z)" rpy="$(arg camera_roll) $(arg camera_pitch) $(arg camera_yaw)"/>
+  </joint>
+  <!-- REP-103 optical frame: z forward, x right, y down. -->
+  <link name="camera_optical_frame"/>
+  <joint name="camera_optical_joint" type="fixed">
+    <parent link="camera_link"/><child link="camera_optical_frame"/>
+    <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
+  </joint>
+</robot>

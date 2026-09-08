@@ -71,8 +71,6 @@ class OpticalFlowNode(Node):
         except OSError as exc:
             self.get_logger().error(f"PMW3901 SPI read failed: {exc}")
             return
-        if motion is None:
-            return
         sensor_x, sensor_y, quality = motion
         now = self.get_clock().now()
         now_ns = now.nanoseconds

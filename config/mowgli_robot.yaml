@@ -1,9 +1,0 @@
-# Bagheera-specific overrides for the MowgliNext robot configuration.
-# The bringup loader merges this sparse file over its versioned defaults.
-
-# Calibrated from two straight floor runs on 2026-09-07:
-#   206.0 ticks / 0.80 m and 201.5 ticks / 0.72 m
-# Combined estimate: 407.5 ticks / 1.52 m = 268.09 ticks/m.
-mowgli:
-  ros__parameters:
-    ticks_per_meter: 268.1

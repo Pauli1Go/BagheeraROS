@@ -21,11 +21,18 @@ ROS-packaged libcamera runtime into the container. The container also mounts
 `/run/udev` read-only so libcamera can enumerate the media graph.
 
 The ROS node publishes a 1920 x 1080 OpenCV-compatible `bgr8` view on
-`/camera/image_raw`, rotated by 180 degrees to match the physical installation,
-and matching calibration metadata on `/camera/camera_info`. It forces the
-2592 x 1944 sensor mode before scaling instead of selecting a low-resolution
-sensor crop. Automatic white balance is explicitly enabled. The fisheye still
-needs an intrinsic calibration before it is used for AprilTag pose estimation.
+`/camera/image_raw`, rotated by 180 degrees to match the physical installation.
+It forces the 2592 x 1944 sensor mode before scaling instead of selecting a
+low-resolution sensor crop. Automatic white balance is explicitly enabled.
+
+Without a calibration file, `camera_ros` reports a `CameraInfo` size of 0 x 0,
+which Foxglove rejects as `invalid image size 0x0`. The measurement normalizer
+therefore publishes the known stream dimensions and `camera_optical_frame` on
+`/camera/camera_info`. Foxglove also rejects zero focal lengths, so the default
+configuration supplies a provisional pinhole model with `fx=fy=960` and the
+principal point at the 1920 x 1080 image centre. This is suitable only for
+visualization. A real fisheye calibration must replace it before AprilTag pose,
+bearing or distance estimation.
 
 ## YDLIDAR G2B
 
@@ -132,7 +139,7 @@ new installation gives stable longitudinal flow measurements.
 ## Drive calibration
 
 Bagheera overrides the MowgliNext wheel scale in
-`config/mowgli_robot.yaml`. The hardware bridge uses `ticks_per_meter` for
+`src/bagheera_base/config/robot.yaml`. The hardware bridge uses `ticks_per_meter` for
 wheel odometry and sends the same value to the STM32 velocity controller.
 
 The initial floor runs produced 206.0 ticks over 0.80 m at 0.08 m/s and 201.5

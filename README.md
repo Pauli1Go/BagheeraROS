@@ -1,9 +1,10 @@
 # BagheeraROS
 
 ROS 2 overlay for the Bagheera office robot. MowgliNext v1.1.0 provides the
-STM32 wire protocol, hardware bridge, robot model and velocity multiplexer;
-this repository contains Bagheera-specific teleoperation and will later add
-indoor LiDAR navigation and AprilTag docking.
+STM32 wire protocol, hardware bridge and velocity multiplexer. This repository
+provides Bagheera's own robot model, measurement normalization, local sensor
+fusion and teleoperation, and will later add indoor LiDAR navigation and
+AprilTag docking.
 
 The current platform bringup deliberately starts no GNSS, Nav2, coverage or
 mower behavior. LiDAR, optical flow and the front camera are part of the base
@@ -16,7 +17,17 @@ enabled.
 game controller -> /cmd_vel_teleop -> twist_mux -> /cmd_vel
                                                   |
                                       mowgli_hardware bridge
-                                                  |
+                                        |         |          |
+                              wheel odom raw   IMU raw   USB protocol
+                                        |         |          |
+                                  measurement normalizer     |
+                                        |         |          |
+                                 wheel odom      IMU          |
+                                        \         /           |
+                                      robot_localization      |
+                                              |               |
+                                      /odometry/filtered      |
+                                                              |
                                       COBS + CRC16 over USB CDC
                                                   |
                                    MowgliNext STM32 firmware v1.1.0
@@ -55,14 +66,17 @@ docker compose up
 
 The launch starts:
 
-- MowgliNext `robot_state_publisher`
+- Bagheera `robot_state_publisher` model and complete static sensor TF tree
 - MowgliNext `hardware_bridge_node`
 - MowgliNext `twist_mux`
 - `bagheera_manual_mode`
 - `bagheera_controller`
+- measurement normalization (`/wheel_odom`, `/imu/data`, camera metadata)
+- `robot_localization` EKF (`/odometry/filtered`, `odom -> base_link`)
 - YDLidar G2 driver (`/scan`)
 - PMW3901 optical-flow driver (`/optical_flow/raw`, `/optical_flow/twist`)
 - front camera driver (`/camera/image_raw`, `/camera/camera_info`)
+- Foxglove bridge on `ws://bagheera.local:8765`
 
 Hold controller button 4 while driving. The default mapping is axis 3 for
 forward/reverse and axis 2 for steering, so the right stick controls both.
@@ -100,8 +114,25 @@ ros2 topic echo /hardware_bridge/status --once
 ros2 topic echo /hardware_bridge/emergency --once
 ros2 topic echo /wheel_odom --once
 ros2 topic echo /imu/data --once
+ros2 topic echo /optical_flow/twist --once
+ros2 topic echo /odometry/filtered --once
+ros2 topic echo /camera/camera_info --once
 ros2 topic hz /cmd_vel_teleop
 ```
+
+The EKF fuses encoder forward/yaw velocity, PMW3901 planar ground velocity and
+the IMU Z angular velocity when the firmware publishes IMU packets. It keeps
+running with the available inputs if one source is absent. Sensor dimensions,
+frames and conservative non-zero covariances are populated for standard ROS 2
+consumers. The camera uses a provisional 90-degree pinhole model (`fx=fy=960`)
+so Foxglove can render it. These values are visualization defaults, not a
+measured calibration, and must be replaced by a real fisheye calibration
+before using AprilTag poses, bearings or distances.
+
+Robot dimensions and all sensor poses are centralized in
+`src/bagheera_base/config/robot.yaml`. The PMW height is measured; the current
+LiDAR, camera and IMU X/Y offsets are usable provisional defaults and should be
+replaced with measured values before precision mapping.
 
 The camera, LiDAR and optical-flow wiring checks, detected hardware revisions
 and reproducible standalone probes are documented in
@@ -120,8 +151,9 @@ PYTHONPATH=src/bagheera_base python3.11 -m unittest discover \
 
 ## Next milestones
 
-1. Validate USB reconnect, emergency inputs, controller deadman, wheel polarity,
-   encoder direction and odometry scale on the real base.
-2. Move to a long-supported ROS 2 base while keeping the MowgliNext protocol.
-3. Add the selected 2D LiDAR, `slam_toolbox`/AMCL and Nav2 for indoor use.
+1. Measure the remaining LiDAR, camera and IMU offsets and calibrate the
+   fisheye intrinsics.
+2. The EKF's IMU input remains configured for a future gyro; it is expected to
+   stay silent on the current hardware because no gyro is installed.
+3. Add `slam_toolbox`, then Nav2/AMCL for indoor use.
 4. Add camera-based AprilTag docking and charging verification.

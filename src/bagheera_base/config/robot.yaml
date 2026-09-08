@@ -1,0 +1,88 @@
+bagheera:
+  ros__parameters:
+    # REP-103 model: x forward, y left, z up; dimensions are metres.
+    chassis_length: 0.60
+    chassis_width: 0.40
+    chassis_height: 0.19
+    chassis_center_x: 0.18
+    chassis_mass_kg: 8.76
+    wheel_radius: 0.04475
+    wheel_width: 0.04
+    wheel_track: 0.325
+    caster_radius: 0.03
+    caster_track: 0.36
+
+    # Sensor origins relative to base_link at the drive-axle centre.
+    # Heights/orientations are usable defaults. Measure x/y offsets before
+    # precision mapping and update only this file.
+    imu_x: 0.18
+    imu_y: 0.0
+    imu_z: 0.095
+    imu_roll: 0.0
+    imu_pitch: 0.0
+    imu_yaw: 0.0
+    lidar_x: 0.0
+    lidar_y: 0.0
+    lidar_z: 0.30
+    lidar_yaw: 0.0
+    optical_flow_x: 0.0
+    optical_flow_y: 0.0
+    # Sensor is measured 90 mm above the floor; base_link is one wheel radius
+    # above it, hence 0.09000 - 0.04475 = 0.04525 m.
+    optical_flow_z: 0.04525
+    camera_x: 0.48
+    camera_y: 0.0
+    camera_z: 0.12
+    camera_roll: 0.0
+    camera_pitch: 0.0
+    camera_yaw: 0.0
+
+hardware_bridge:
+  ros__parameters:
+    serial_port: /dev/mowgli
+    baud_rate: 115200
+    heartbeat_rate: 4.0
+    serial_rx_timeout_s: 2.0
+    publish_rate: 100.0
+    high_level_rate: 2.0
+    min_linear_vel: 0.05
+    max_mps: 0.5
+    wheel_track: 0.325
+    ticks_per_meter: 268.1
+    wheel_pid_kp: 0.2
+    wheel_pid_ki: 0.092
+    wheel_pid_kd: 0.01
+    wheel_pid_integral_limit: 15.0
+    wheel_pid_pwm_per_mps: 282.135
+    yaw_kp: 0.12
+    yaw_ki: 0.40
+    yaw_trim_limit_mps: 0.15
+    yaw_loop_enabled: true
+    yaw_gyro_sign: 1
+    imu_cal_samples: 200
+    imu_cal_persist_path: /ros2_ws/maps/imu_calibration.txt
+    imu_cal_auto_rest_sec: 15.0
+    imu_cal_periodic_recal_sec: 600.0
+    dock_pose_x: 0.0
+    dock_pose_y: 0.0
+    dock_pose_yaw: 0.0
+    lift_recovery_mode: false
+    lift_blade_resume_delay_sec: 1.0
+    max_charge_voltage: 29.4
+    max_charge_current: 1.2
+    one_wheel_lift_emergency_ms: 2000
+    both_wheels_lift_emergency_ms: 1000
+    tilt_emergency_ms: 500
+    stop_button_emergency_ms: 100
+    play_button_clear_emergency_ms: 2000
+    dig_detect_enabled: true
+    dig_window_s: 1.2
+    dig_min_cmd_speed: 0.05
+    dig_min_wheel_dist: 0.15
+    dig_progress_fraction: 0.35
+    dig_max_pos_sigma: 0.10
+    dig_reverse_speed: 0.12
+    dig_reverse_dist: 0.30
+    dig_reverse_timeout_s: 4.0
+    dig_monitor_rate: 10.0
+    dig_pose_timeout_s: 1.0

@@ -19,7 +19,6 @@ services:
     volumes:
       - /dev:/dev
       - /run/udev:/run/udev:ro
-      - ./config/mowgli_robot.yaml:/ros2_ws/config/mowgli_robot.yaml:ro
-      - ./src/bagheera_base/config/sensors.yaml:/bagheera_ws/install/share/bagheera_base/config/sensors.yaml:ro
+      - ./src/bagheera_base/config:/bagheera_ws/install/share/bagheera_base/config:ro
     restart: unless-stopped
     stop_grace_period: 2s

@@ -1,0 +1,108 @@
+ekf_filter_node:
+  ros__parameters:
+    frequency: 50.0
+    sensor_timeout: 0.20
+    two_d_mode: true
+    transform_time_offset: 0.0
+    transform_timeout: 0.10
+    print_diagnostics: true
+    debug: false
+    publish_tf: true
+    publish_acceleration: false
+    reset_on_time_jump: true
+    predict_to_current_time: true
+
+    map_frame: map
+    odom_frame: odom
+    base_link_frame: base_link
+    world_frame: odom
+
+    # Wheel odometry supplies independent forward velocity and encoder yaw
+    # rate. Its pose covariance is currently zero, so pose fields are
+    # intentionally not consumed.
+    odom0: /wheel_odom
+    odom0_config: [false, false, false,
+                   false, false, false,
+                   true,  false, false,
+                   false, false, true,
+                   false, false, false]
+    odom0_queue_size: 10
+    odom0_nodelay: false
+    odom0_differential: false
+    odom0_relative: false
+    odom0_pose_rejection_threshold: 5.0
+    odom0_twist_rejection_threshold: 2.0
+
+    # The PMW3901 measures ground-relative planar velocity and therefore
+    # constrains wheel slip in both axes.
+    twist0: /optical_flow/twist
+    twist0_config: [false, false, false,
+                    false, false, false,
+                    true,  true,  false,
+                    false, false, false,
+                    false, false, false]
+    twist0_queue_size: 20
+    twist0_nodelay: false
+    twist0_rejection_threshold: 2.0
+
+    # The onboard IMU has no absolute office-frame heading reference. Fuse
+    # only its Z angular velocity; do not double-integrate its free-running
+    # orientation or use gravity-contaminated acceleration.
+    imu0: /imu/data
+    imu0_config: [false, false, false,
+                  false, false, false,
+                  false, false, false,
+                  false, false, true,
+                  false, false, false]
+    imu0_queue_size: 20
+    imu0_nodelay: false
+    imu0_differential: false
+    imu0_relative: false
+    imu0_remove_gravitational_acceleration: true
+    imu0_pose_rejection_threshold: 0.8
+    imu0_twist_rejection_threshold: 1.5
+    imu0_linear_acceleration_rejection_threshold: 1.5
+
+    use_control: false
+    stamped_control: false
+    control_timeout: 0.2
+    control_config: [false, false, false, false, false, false]
+    acceleration_limits: [1.0, 0.0, 0.0, 0.0, 0.0, 3.0]
+    deceleration_limits: [1.5, 0.0, 0.0, 0.0, 0.0, 4.0]
+    acceleration_gains: [0.8, 0.0, 0.0, 0.0, 0.0, 0.8]
+    deceleration_gains: [1.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+
+    # State order: x y z roll pitch yaw vx vy vz vroll vpitch vyaw ax ay az.
+    process_noise_covariance: [
+      0.03, 0.0,  0.0,   0.0,   0.0,   0.0,  0.0,   0.0,   0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.03, 0.0,   0.0,   0.0,   0.0,  0.0,   0.0,   0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.06,  0.0,   0.0,   0.0,  0.0,   0.0,   0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,   0.03,  0.0,   0.0,  0.0,   0.0,   0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,   0.0,   0.03,  0.0,  0.0,   0.0,   0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,   0.0,   0.0,   0.06, 0.0,   0.0,   0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,   0.0,   0.0,   0.0,  0.025, 0.0,   0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,   0.0,   0.0,   0.0,  0.0,   0.025, 0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,   0.0,   0.0,   0.0,  0.0,   0.0,   0.04, 0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,   0.0,   0.0,   0.0,  0.0,   0.0,   0.0,  0.01, 0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,   0.0,   0.0,   0.0,  0.0,   0.0,   0.0,  0.0,  0.01, 0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,   0.0,   0.0,   0.0,  0.0,   0.0,   0.0,  0.0,  0.0,  0.02, 0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,   0.0,   0.0,   0.0,  0.0,   0.0,   0.0,  0.0,  0.0,  0.0,  0.01, 0.0,  0.0,
+      0.0,  0.0,  0.0,   0.0,   0.0,   0.0,  0.0,   0.0,   0.0,  0.0,  0.0,  0.0,  0.0,  0.01, 0.0,
+      0.0,  0.0,  0.0,   0.0,   0.0,   0.0,  0.0,   0.0,   0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.015]
+
+    initial_estimate_covariance: [
+      1.0e-3, 0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,
+      0.0,    1.0e-3, 0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,
+      0.0,    0.0,    1.0e-6, 0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,
+      0.0,    0.0,    0.0,    1.0e-6, 0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,
+      0.0,    0.0,    0.0,    0.0,    1.0e-6, 0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,
+      0.0,    0.0,    0.0,    0.0,    0.0,    1.0e-3, 0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,
+      0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    1.0e-2, 0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,
+      0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    1.0e-2, 0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,
+      0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    1.0e-6, 0.0,    0.0,    0.0,    0.0,    0.0,    0.0,
+      0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    1.0e-6, 0.0,    0.0,    0.0,    0.0,    0.0,
+      0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    1.0e-6, 0.0,    0.0,    0.0,    0.0,
+      0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    1.0e-2, 0.0,    0.0,    0.0,
+      0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    1.0e-2, 0.0,    0.0,
+      0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    1.0e-2, 0.0,
+      0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    1.0e-6]

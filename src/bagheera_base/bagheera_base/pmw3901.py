@@ -67,14 +67,20 @@ class Pmw3901:
         """Return product and revision IDs."""
         return self._read(REG_ID), self._read(REG_ID + 1)
 
-    def read_motion(self) -> tuple[int, int, int] | None:
-        """Return delta X, delta Y and surface quality for one ready burst."""
+    def read_motion(self) -> tuple[int, int, int]:
+        """Return delta X, delta Y and surface quality for one polling period.
+
+        A burst without the motion bit is a valid zero-velocity observation,
+        not missing data. Publishing it keeps downstream estimators informed
+        that the chassis is stationary.
+        """
         data = self.spi.xfer2([REG_MOTION_BURST] + [0] * 12)
         (_, motion, _observation, delta_x, delta_y, quality, *_rest) = struct.unpack(
             "<BBBhhBBBBBB", bytearray(data)
         )
         if not motion & 0x80:
-            return None
+            delta_x = 0
+            delta_y = 0
         return delta_x, delta_y, quality
 
     def _write(self, register: int, value: int) -> None:
