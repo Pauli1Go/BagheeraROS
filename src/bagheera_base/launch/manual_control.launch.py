@@ -3,8 +3,9 @@ from pathlib import Path
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, FindExecutable, LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.descriptions import ParameterValue
@@ -59,12 +60,14 @@ def generate_launch_description():
     sensor_config = str(package_share / "config" / "sensors.yaml")
     robot_config = package_share / "config" / "robot.yaml"
     localization_config = str(package_share / "config" / "localization.yaml")
+    slam_config = str(package_share / "config" / "slam.yaml")
 
     serial_port = LaunchConfiguration("serial_port")
     use_lidar = LaunchConfiguration("use_lidar")
     use_optical_flow = LaunchConfiguration("use_optical_flow")
     use_camera = LaunchConfiguration("use_camera")
     use_sensor_fusion = LaunchConfiguration("use_sensor_fusion")
+    use_slam = LaunchConfiguration("use_slam")
     use_foxglove = LaunchConfiguration("use_foxglove")
 
     arguments = [
@@ -77,6 +80,7 @@ def generate_launch_description():
         DeclareLaunchArgument("use_optical_flow", default_value="true"),
         DeclareLaunchArgument("use_camera", default_value="true"),
         DeclareLaunchArgument("use_sensor_fusion", default_value="true"),
+        DeclareLaunchArgument("use_slam", default_value="true"),
         DeclareLaunchArgument("use_foxglove", default_value="true"),
         DeclareLaunchArgument("foxglove_address", default_value="0.0.0.0"),
         DeclareLaunchArgument("foxglove_port", default_value="8765"),
@@ -184,6 +188,22 @@ def generate_launch_description():
         remappings=[("odometry/filtered", "/odometry/filtered")],
         condition=IfCondition(use_sensor_fusion),
     )
+    slam = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            str(
+                Path(get_package_share_directory("slam_toolbox"))
+                / "launch"
+                / "online_async_launch.py"
+            )
+        ),
+        launch_arguments={
+            "autostart": "true",
+            "use_lifecycle_manager": "false",
+            "use_sim_time": "false",
+            "slam_params_file": slam_config,
+        }.items(),
+        condition=IfCondition(use_slam),
+    )
     foxglove = Node(
         package="foxglove_bridge",
         executable="foxglove_bridge",
@@ -215,6 +235,7 @@ def generate_launch_description():
             optical_flow,
             camera,
             ekf,
+            slam,
             foxglove,
         ]
     )

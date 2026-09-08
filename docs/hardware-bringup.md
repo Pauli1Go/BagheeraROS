@@ -136,6 +136,19 @@ the robot's forward axis without inversion. The calibrated scale is:
 The immediately preceding repeat produced 2723 X-counts, confirming that the
 new installation gives stable longitudinal flow measurements.
 
+## Online SLAM
+
+`slam_toolbox` consumes `/scan` and the existing `odom -> base_link ->
+lidar_link` transform chain. It publishes the occupancy grid on `/map` and the
+global correction as `map -> odom`. The EKF remains the sole publisher of
+`odom -> base_link`; feeding the SLAM pose back into that local EKF would create
+a circular dependency.
+
+Mapping is enabled by default in `manual_control.launch.py`. Parameters are in
+`src/bagheera_base/config/slam.yaml`. The 5 cm map resolution matches the first
+indoor proof of concept; travel thresholds are deliberately low enough to
+accept the robot's slow manual movements.
+
 ## Drive calibration
 
 Bagheera overrides the MowgliNext wheel scale in

@@ -17,6 +17,7 @@ RUN apt-get update \
       ros-kilted-camera-ros \
       ros-kilted-foxglove-bridge \
       ros-kilted-robot-localization \
+      ros-kilted-slam-toolbox \
  && rm -rf /var/lib/apt/lists/*
 
 RUN git clone https://github.com/YDLIDAR/YDLidar-SDK.git /opt/ydlidar-sdk-src \
@@ -33,14 +34,21 @@ RUN git clone --branch humble https://github.com/YDLIDAR/ydlidar_ros2_driver.git
  && git -C src/ydlidar_ros2_driver checkout "${YDLIDAR_ROS2_REF}" \
  && git clone https://github.com/christianrauch/camera_ros.git src/camera_ros \
  && git -C src/camera_ros checkout "${CAMERA_ROS_REF}"
-COPY src/bagheera_base src/bagheera_base
 
 RUN . /opt/ros/kilted/setup.sh \
  && . /ros2_ws/install/setup.sh \
  && colcon build \
       --merge-install \
-      --packages-select ydlidar_ros2_driver camera_ros bagheera_base \
+      --packages-select ydlidar_ros2_driver camera_ros \
       --cmake-args -DCMAKE_BUILD_TYPE=Release
+
+COPY src/bagheera_base src/bagheera_base
+RUN . /opt/ros/kilted/setup.sh \
+ && . /ros2_ws/install/setup.sh \
+ && . /bagheera_ws/install/setup.sh \
+ && colcon build \
+      --merge-install \
+      --packages-select bagheera_base
 
 COPY docker/entrypoint.sh /bagheera_entrypoint.sh
 RUN chmod +x /bagheera_entrypoint.sh

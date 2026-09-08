@@ -7,9 +7,8 @@ fusion and teleoperation, and will later add indoor LiDAR navigation and
 AprilTag docking.
 
 The current platform bringup deliberately starts no GNSS, Nav2, coverage or
-mower behavior. LiDAR, optical flow and the front camera are part of the base
-bringup so their ROS interfaces are available before autonomous navigation is
-enabled.
+mower behavior. LiDAR, optical flow, the front camera and online 2D SLAM are
+part of the base bringup. Nav2 autonomous navigation remains the next layer.
 
 ## Architecture
 
@@ -27,6 +26,10 @@ game controller -> /cmd_vel_teleop -> twist_mux -> /cmd_vel
                                       robot_localization      |
                                               |               |
                                       /odometry/filtered      |
+                                              |               |
+                                     slam_toolbox + /scan     |
+                                              |               |
+                                      /map + map -> odom      |
                                                               |
                                       COBS + CRC16 over USB CDC
                                                   |
@@ -73,10 +76,15 @@ The launch starts:
 - `bagheera_controller`
 - measurement normalization (`/wheel_odom`, `/imu/data`, camera metadata)
 - `robot_localization` EKF (`/odometry/filtered`, `odom -> base_link`)
+- asynchronous `slam_toolbox` mapping (`/map`, `map -> odom`)
 - YDLidar G2 driver (`/scan`)
 - PMW3901 optical-flow driver (`/optical_flow/raw`, `/optical_flow/twist`)
 - front camera driver (`/camera/image_raw`, `/camera/camera_info`)
 - Foxglove bridge on `ws://bagheera.local:8765`
+
+In Foxglove, add a 3D panel, select `map` as the fixed frame and enable
+`/map`, `/scan`, the robot model and `/odometry/filtered`. The occupancy map
+updates every two seconds while the robot is driven manually.
 
 Hold controller button 4 while driving. The default mapping is axis 3 for
 forward/reverse and axis 2 for steering, so the right stick controls both.
@@ -117,6 +125,7 @@ ros2 topic echo /imu/data --once
 ros2 topic echo /optical_flow/twist --once
 ros2 topic echo /odometry/filtered --once
 ros2 topic echo /camera/camera_info --once
+ros2 topic echo /map --once
 ros2 topic hz /cmd_vel_teleop
 ```
 
@@ -133,6 +142,25 @@ Robot dimensions and all sensor poses are centralized in
 `src/bagheera_base/config/robot.yaml`. The PMW height is measured; the current
 LiDAR, camera and IMU X/Y offsets are usable provisional defaults and should be
 replaced with measured values before precision mapping.
+
+## Save a map
+
+The host directory `maps/` is mounted writable at `/bagheera_ws/maps` inside
+the container. Save both the ordinary occupancy map and the serialized SLAM
+pose graph after completing a mapping run:
+
+```bash
+docker exec -it bagheera-base bash
+ros2 service call /slam_toolbox/save_map slam_toolbox/srv/SaveMap \
+  "{name: {data: /bagheera_ws/maps/office}}"
+ros2 service call /slam_toolbox/serialize_map \
+  slam_toolbox/srv/SerializePoseGraph \
+  "{filename: /bagheera_ws/maps/office}"
+```
+
+This produces the map files in the repository's `maps/` directory on the Pi.
+The serialized pose graph is what `slam_toolbox` later uses to continue mapping
+or run in localization mode; the YAML/PGM pair is useful for Nav2 map tooling.
 
 The camera, LiDAR and optical-flow wiring checks, detected hardware revisions
 and reproducible standalone probes are documented in
@@ -155,5 +183,6 @@ PYTHONPATH=src/bagheera_base python3.11 -m unittest discover \
    fisheye intrinsics.
 2. The EKF's IMU input remains configured for a future gyro; it is expected to
    stay silent on the current hardware because no gyro is installed.
-3. Add `slam_toolbox`, then Nav2/AMCL for indoor use.
-4. Add camera-based AprilTag docking and charging verification.
+3. Drive a slow closed loop, verify loop closure and save the first office map.
+4. Add Nav2 using the saved map and the existing `/odometry/filtered` output.
+5. Add camera-based AprilTag docking and charging verification.
