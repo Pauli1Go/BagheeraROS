@@ -5,8 +5,10 @@ STM32 wire protocol, hardware bridge, robot model and velocity multiplexer;
 this repository contains Bagheera-specific teleoperation and will later add
 indoor LiDAR navigation and AprilTag docking.
 
-The first milestone deliberately starts no GNSS, LiDAR, Nav2, coverage, mower
-behavior or GUI components.
+The current platform bringup deliberately starts no GNSS, Nav2, coverage or
+mower behavior. LiDAR, optical flow and the front camera are part of the base
+bringup so their ROS interfaces are available before autonomous navigation is
+enabled.
 
 ## Architecture
 
@@ -51,13 +53,16 @@ docker compose build
 docker compose up
 ```
 
-The launch starts only:
+The launch starts:
 
 - MowgliNext `robot_state_publisher`
 - MowgliNext `hardware_bridge_node`
 - MowgliNext `twist_mux`
 - `bagheera_manual_mode`
 - `bagheera_controller`
+- YDLidar G2 driver (`/scan`)
+- PMW3901 optical-flow driver (`/optical_flow/raw`, `/optical_flow/twist`)
+- front camera driver (`/camera/image_raw`, `/camera/camera_info`)
 
 Hold controller button 4 while driving. The default mapping is axis 3 for
 forward/reverse and axis 2 for steering, so the right stick controls both.
@@ -98,9 +103,20 @@ ros2 topic echo /imu/data --once
 ros2 topic hz /cmd_vel_teleop
 ```
 
+The camera, LiDAR and optical-flow wiring checks, detected hardware revisions
+and reproducible standalone probes are documented in
+[`docs/hardware-bringup.md`](docs/hardware-bringup.md).
+
 The old Python `base_driver.py` and its `MW` protocol implementation remain in
 the repository only as migration reference. `manual_control.launch.py` never
 starts them; the only process opening `/dev/mowgli` is MowgliNext's C++ bridge.
+
+Pure-Python tests can also run on a development machine without ROS installed:
+
+```bash
+PYTHONPATH=src/bagheera_base python3.11 -m unittest discover \
+  -s src/bagheera_base/test -v
+```
 
 ## Next milestones
 

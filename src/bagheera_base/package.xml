@@ -10,6 +10,7 @@
   <buildtool_depend>ament_python</buildtool_depend>
 
   <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>camera_ros</exec_depend>
   <exec_depend>diagnostic_msgs</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>launch</exec_depend>
@@ -18,6 +19,7 @@
   <exec_depend>mowgli_interfaces</exec_depend>
   <exec_depend>nav_msgs</exec_depend>
   <exec_depend>python3-pygame</exec_depend>
+  <exec_depend>python3-spidev</exec_depend>
   <exec_depend>rclpy</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>std_msgs</exec_depend>

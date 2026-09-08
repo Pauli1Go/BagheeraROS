@@ -18,8 +18,9 @@
 
 ## Milestone 3: office navigation
 
-- add the selected 2D LiDAR driver
+- integrate the YDLidar G2, PMW3901 and front fisheye camera
 - create a Bagheera URDF without mower-specific tool geometry
+- fuse wheel odometry, IMU yaw rate and optical-flow velocity
 - add `slam_toolbox` for mapping and AMCL for operation on a maintained map
 - configure Nav2 footprint, costmaps and indoor velocity/acceleration limits
 - integrate additional bump, cliff and proximity safety inputs
