@@ -13,7 +13,9 @@ ydlidar_ros2_driver_node:
     # Preserve every measured point instead of truncating scans to 530 points.
     fixed_resolution: false
     reversion: false
-    inverted: false
+    # The G2 is mounted with its native clockwise scan direction.  ROS laser
+    # scans use counter-clockwise-positive angles, so reverse the ray order.
+    inverted: true
     auto_reconnect: true
     isSingleChannel: false
     intensity: true
