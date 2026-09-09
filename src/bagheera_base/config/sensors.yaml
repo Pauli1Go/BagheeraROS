@@ -75,10 +75,12 @@ camera:
     format: RGB888
     width: 1920
     height: 1080
-    # Keep the Foxglove compressed stream near 3 Mbit/s while retaining the
-    # full 1080p frame. Frame durations are in microseconds (5 FPS).
-    jpeg_quality: 14
-    FrameDurationLimits: [200000, 200000]
+    # 15 FPS gives future AprilTag docking enough temporal resolution. The
+    # frame durations are in microseconds. JPEG bandwidth is scene-dependent;
+    # quality 20 measured roughly 4-13 Mbit/s at 1920x1080 on the robot.
+    jpeg_quality: 20
+    FrameDurationLimits: [66667, 66667]
+    camera_info_url: "file:///bagheera_ws/install/share/bagheera_base/config/camera_fisheye.yaml"
     # Force the complete 4:3 sensor area so the fisheye field of view is kept.
     sensor_mode: "2592:1944"
     orientation: 180
