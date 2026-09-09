@@ -75,6 +75,10 @@ camera:
     format: RGB888
     width: 1920
     height: 1080
+    # Keep the Foxglove compressed stream near 3 Mbit/s while retaining the
+    # full 1080p frame. Frame durations are in microseconds (5 FPS).
+    jpeg_quality: 14
+    FrameDurationLimits: [200000, 200000]
     # Force the complete 4:3 sensor area so the fisheye field of view is kept.
     sensor_mode: "2592:1944"
     orientation: 180
