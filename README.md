@@ -78,16 +78,24 @@ The launch starts:
 - `bagheera_controller`
 - measurement normalization (`/wheel_odom`, `/imu/data`, camera metadata)
 - `robot_localization` EKF (`/odometry/filtered`, `odom -> base_link`)
-- asynchronous `slam_toolbox` mapping (`/map`, `map -> odom`)
 - YDLidar G2 driver (`/scan`)
 - PMW3901 optical-flow driver (`/optical_flow/raw`, `/optical_flow/twist`)
 - WT901 I2C IMU driver (`/imu/wt901/data_raw`)
 - front camera driver (`/camera/image_raw`, `/camera/camera_info`)
 - Foxglove bridge on `ws://bagheera.local:8765`
 
+Online mapping is deliberately not started at boot. Start only the additional
+SLAM process when a new mapping session is wanted:
+
+```bash
+docker exec -d bagheera-base /bagheera_entrypoint.sh \
+  ros2 launch bagheera_base mapping.launch.py
+```
+
 In Foxglove, add a 3D panel, select `map` as the fixed frame and enable
 `/map`, `/scan`, the robot model and `/odometry/filtered`. The occupancy map
-updates every two seconds while the robot is driven manually.
+then updates every two seconds while the robot is driven manually. A normal
+container or host restart returns to base operation without mapping.
 
 Hold controller button 4 while driving. The default mapping is axis 3 for
 forward/reverse and axis 2 for steering, so the right stick controls both.

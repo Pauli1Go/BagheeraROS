@@ -207,7 +207,9 @@ during slip and reports zero when the robot is turned manually. Do not add a
 low `imu0_twist_rejection_threshold`; with the WT901 covariance, the previous
 1.5-sigma threshold rejected ordinary turns as outliers.
 
-Mapping is enabled by default in `manual_control.launch.py`. Parameters are in
+Mapping is disabled by default in `manual_control.launch.py`, so a normal boot
+does not create or modify a map. Start the mapping-only launch explicitly with
+`ros2 launch bagheera_base mapping.launch.py`. Parameters are in
 `src/bagheera_base/config/slam.yaml`. The 5 cm map resolution matches the first
 indoor proof of concept; travel thresholds are deliberately low enough to
 accept the robot's slow manual movements.

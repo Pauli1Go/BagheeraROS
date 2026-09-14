@@ -82,7 +82,7 @@ def generate_launch_description():
         DeclareLaunchArgument("use_wt901", default_value="true"),
         DeclareLaunchArgument("use_camera", default_value="true"),
         DeclareLaunchArgument("use_sensor_fusion", default_value="true"),
-        DeclareLaunchArgument("use_slam", default_value="true"),
+        DeclareLaunchArgument("use_slam", default_value="false"),
         DeclareLaunchArgument("use_foxglove", default_value="true"),
         DeclareLaunchArgument("foxglove_address", default_value="0.0.0.0"),
         DeclareLaunchArgument("foxglove_port", default_value="8765"),
