@@ -15,6 +15,7 @@ class GoalPoseBridge(Node):
         super().__init__("bagheera_goal_pose_bridge")
         self._client = ActionClient(self, NavigateToPose, "/navigate_to_pose")
         self._goal_handle = None
+        self._cancel_in_progress = False
         self._pending_pose: PoseStamped | None = None
         self.create_subscription(PoseStamped, "/goal_pose", self._on_pose, 10)
         self.create_subscription(
@@ -35,10 +36,18 @@ class GoalPoseBridge(Node):
             return
 
         self._pending_pose = pose
-        if self._goal_handle is not None and self._goal_handle.is_active:
+        if self._goal_handle is not None:
+            if self._cancel_in_progress:
+                return
+            self._cancel_in_progress = True
             future = self._goal_handle.cancel_goal_async()
-            future.add_done_callback(lambda _: self._send_pending())
+            future.add_done_callback(self._cancel_done)
             return
+        self._send_pending()
+
+    def _cancel_done(self, _future) -> None:
+        self._cancel_in_progress = False
+        self._goal_handle = None
         self._send_pending()
 
     def _send_pending(self) -> None:

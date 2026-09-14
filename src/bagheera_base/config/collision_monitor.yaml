@@ -19,7 +19,9 @@ collision_monitor:
     LidarStop:
       type: polygon
       action_type: stop
-      points: "[[0.70, 0.36], [0.70, -0.36], [-0.32, -0.36], [-0.32, 0.36]]"
+      # Chassis is x=[-0.12, 0.48], y=[-0.20, 0.20]. Keep only a short
+      # 6-8 cm stop margin so door frames do not block normal passage.
+      points: "[[0.56, 0.26], [0.56, -0.26], [-0.20, -0.26], [-0.20, 0.26]]"
       min_points: 3
       visualize: true
       polygon_pub_topic: /collision_monitor/stop_zone
