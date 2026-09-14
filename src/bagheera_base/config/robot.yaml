@@ -20,11 +20,16 @@ bagheera:
     imu_z: 0.095
     imu_roll: 0.0
     imu_pitch: 0.0
-    imu_yaw: 0.0
+    # WT901 Y+ points forward. A -90 degree child-frame yaw maps its Y axis to
+    # REP-103 base_link X+ while keeping Z+ upward.
+    imu_yaw: -1.5707963267948966
     lidar_x: 0.0
     lidar_y: 0.0
     lidar_z: 0.30
-    lidar_yaw: 0.0
+    # A static target centred directly in front was measured at +85.5 deg in
+    # the raw scan. Rotate lidar_link by -85.5 deg so ROS angle 0 points along
+    # REP-103 base_link X+.
+    lidar_yaw: -1.4922565104551517
     optical_flow_x: 0.0
     optical_flow_y: 0.0
     # Sensor is measured 90 mm above the floor; base_link is one wheel radius

@@ -13,6 +13,7 @@ RUN apt-get update \
       git \
       python3-colcon-common-extensions \
       python3-pygame \
+      python3-smbus \
       python3-spidev \
       ros-kilted-camera-ros \
       ros-kilted-foxglove-bridge \

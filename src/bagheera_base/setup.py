@@ -29,6 +29,7 @@ setup(
             "bagheera_manual_mode = bagheera_base.manual_mode:main",
             "bagheera_measurement_normalizer = bagheera_base.measurement_normalizer:main",
             "bagheera_optical_flow = bagheera_base.optical_flow:main",
+            "bagheera_wt901 = bagheera_base.wt901_node:main",
         ],
     },
 )

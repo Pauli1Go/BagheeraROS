@@ -22,6 +22,7 @@
   <exec_depend>foxglove_bridge</exec_depend>
   <exec_depend>python3-pygame</exec_depend>
   <exec_depend>python3-spidev</exec_depend>
+  <exec_depend>python3-smbus</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
   <exec_depend>rclpy</exec_depend>
   <exec_depend>robot_localization</exec_depend>

@@ -65,6 +65,7 @@ def generate_launch_description():
     serial_port = LaunchConfiguration("serial_port")
     use_lidar = LaunchConfiguration("use_lidar")
     use_optical_flow = LaunchConfiguration("use_optical_flow")
+    use_wt901 = LaunchConfiguration("use_wt901")
     use_camera = LaunchConfiguration("use_camera")
     use_sensor_fusion = LaunchConfiguration("use_sensor_fusion")
     use_slam = LaunchConfiguration("use_slam")
@@ -78,6 +79,7 @@ def generate_launch_description():
         DeclareLaunchArgument("steering_axis", default_value="2"),
         DeclareLaunchArgument("use_lidar", default_value="true"),
         DeclareLaunchArgument("use_optical_flow", default_value="true"),
+        DeclareLaunchArgument("use_wt901", default_value="true"),
         DeclareLaunchArgument("use_camera", default_value="true"),
         DeclareLaunchArgument("use_sensor_fusion", default_value="true"),
         DeclareLaunchArgument("use_slam", default_value="true"),
@@ -169,6 +171,14 @@ def generate_launch_description():
         parameters=[sensor_config],
         condition=IfCondition(use_optical_flow),
     )
+    wt901 = Node(
+        package="bagheera_base",
+        executable="bagheera_wt901",
+        name="bagheera_wt901",
+        output="screen",
+        parameters=[sensor_config],
+        condition=IfCondition(use_wt901),
+    )
     camera = Node(
         package="camera_ros",
         executable="camera_node",
@@ -233,6 +243,7 @@ def generate_launch_description():
             measurement_normalizer,
             lidar,
             optical_flow,
+            wt901,
             camera,
             ekf,
             slam,

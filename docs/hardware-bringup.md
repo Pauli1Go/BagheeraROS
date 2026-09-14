@@ -85,6 +85,14 @@ G2B delivers about 9.66 scans/s. `fixed_resolution` is deliberately disabled:
 the sensor varies slightly around its nominal samples-per-revolution and a
 fixed 530-point buffer would discard valid points.
 
+The physical scan zero was calibrated using a static target centred directly
+in front of the robot at about 0.44 m. Across 20 scans it formed the largest
+nearby cluster, centred at +85.5 degrees with a width of 34.75 degrees.
+`robot.yaml` therefore sets `lidar_yaw` to -85.5 degrees, mapping the cluster
+centre to REP-103 `base_link` X+ (forward). This static correction is
+independent of the `inverted` setting, which fixes the scan's
+clockwise/counter-clockwise order.
+
 ## PMW3901 optical-flow sensor
 
 The downward-facing PMW3901 uses Raspberry Pi SPI0:
@@ -136,6 +144,48 @@ the robot's forward axis without inversion. The calibrated scale is:
 The immediately preceding repeat produced 2723 X-counts, confirming that the
 new installation gives stable longitudinal flow measurements.
 
+## WT901 IMU
+
+The WT901 is connected directly to Raspberry Pi I2C1 and was detected at its
+default 7-bit address `0x50`:
+
+| Signal | Raspberry Pi connection | Electrical level |
+|---|---|---|
+| SDA | GPIO 2 / pin 3 | measured 3.3 V logic |
+| SCL | GPIO 3 / pin 5 | measured 3.3 V logic |
+| VCC | 5 V | module supply |
+| GND | GND | common ground |
+
+`i2cdetect -y 1` must show `50`. A live register probe returned approximately
+`[-0.052, -0.021, +1.007] g` while stationary, confirming communication and
+that the sensor Z axis points upward in the current mounting. The physical
+WT901 Y+ axis points toward the front of the robot. `robot.yaml` therefore
+defines an IMU yaw of -90 degrees so sensor Y+ maps to REP-103 `base_link` X+.
+
+`bagheera_wt901` reads acceleration and angular velocity at 50 Hz, converts
+them to m/s² and rad/s, and publishes `sensor_msgs/msg/Imu` on
+`/imu/wt901/data_raw`. During its first four seconds it averages the stationary
+gyro samples and then removes that bias. Keep the robot still during this
+period after every bring-up restart.
+
+The message marks orientation as unavailable. The local EKF intentionally
+fuses only `angular_velocity.z`; it does not consume the WT901 magnetometer
+orientation or linear acceleration. Consequently, a horizontal rotation of
+the module and its roughly 1 cm displacement from the robot centre do not
+affect the currently used measurement. The exact pose must still be entered in
+`config/robot.yaml` before using acceleration or full 3D orientation.
+
+Check the live integration inside the running container:
+
+```bash
+i2cdetect -y 1
+ros2 topic hz /imu/wt901/data_raw
+ros2 topic info --verbose /imu/wt901/data_raw
+ros2 topic echo /imu/wt901/data_raw --once
+```
+
+The topic should run at about 50 Hz and list `ekf_filter_node` as a subscriber.
+
 ## Online SLAM
 
 `slam_toolbox` consumes `/scan` and the existing `odom -> base_link ->
@@ -143,6 +193,19 @@ lidar_link` transform chain. It publishes the occupancy grid on `/map` and the
 global correction as `map -> odom`. The EKF remains the sole publisher of
 `odom -> base_link`; feeding the SLAM pose back into that local EKF would create
 a circular dependency.
+
+The WT901 is intentionally not connected straight to `slam_toolbox`. Its Z
+angular velocity enters the EKF, the EKF integrates it into
+`odom -> base_link`, and SLAM uses that transform as the motion estimate for
+each LiDAR scan. A controlled turn verified that `map -> base_link` and
+`odom -> base_link` rotate together while `map -> odom` remains the independent
+scan-matching correction.
+
+Wheel odometry contributes forward velocity but not angular velocity. The
+WT901 is the sole EKF yaw-rate source: wheel-derived yaw becomes unreliable
+during slip and reports zero when the robot is turned manually. Do not add a
+low `imu0_twist_rejection_threshold`; with the WT901 covariance, the previous
+1.5-sigma threshold rejected ordinary turns as outliers.
 
 Mapping is enabled by default in `manual_control.launch.py`. Parameters are in
 `src/bagheera_base/config/slam.yaml`. The 5 cm map resolution matches the first

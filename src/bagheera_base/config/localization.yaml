@@ -17,14 +17,14 @@ ekf_filter_node:
     base_link_frame: base_link
     world_frame: odom
 
-    # Wheel odometry supplies independent forward velocity and encoder yaw
-    # rate. Its pose covariance is currently zero, so pose fields are
-    # intentionally not consumed.
+    # Wheel odometry supplies forward velocity. Encoder yaw rate is no longer
+    # fused: during slip or manual motion it conflicts with the WT901, which is
+    # the authoritative angular-rate source. Pose fields are also omitted.
     odom0: /wheel_odom
     odom0_config: [false, false, false,
                    false, false, false,
                    true,  false, false,
-                   false, false, true,
+                   false, false, false,
                    false, false, false]
     odom0_queue_size: 10
     odom0_nodelay: false
@@ -45,22 +45,24 @@ ekf_filter_node:
     twist0_nodelay: false
     twist0_rejection_threshold: 2.0
 
-    # The onboard IMU has no absolute office-frame heading reference. Fuse
-    # only its Z angular velocity; do not double-integrate its free-running
-    # orientation or use gravity-contaminated acceleration.
-    imu0: /imu/data
+    # The WT901 has no trusted absolute office-frame heading reference. Fuse
+    # only its calibrated Z angular velocity; do not use its magnetometer-based
+    # orientation or gravity-contaminated acceleration.
+    imu0: /imu/wt901/data_raw
     imu0_config: [false, false, false,
                   false, false, false,
                   false, false, false,
                   false, false, true,
                   false, false, false]
     imu0_queue_size: 20
-    imu0_nodelay: false
+    imu0_nodelay: true
     imu0_differential: false
     imu0_relative: false
     imu0_remove_gravitational_acceleration: true
     imu0_pose_rejection_threshold: 0.8
-    imu0_twist_rejection_threshold: 1.5
+    # Do not apply a low Mahalanobis rejection threshold here. With the small
+    # gyro covariance it rejected normal turns as outliers and left yaw nearly
+    # unchanged while the physical robot and LiDAR rotated.
     imu0_linear_acceleration_rejection_threshold: 1.5
 
     use_control: false

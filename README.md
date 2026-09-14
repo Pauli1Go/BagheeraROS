@@ -16,13 +16,15 @@ part of the base bringup. Nav2 autonomous navigation remains the next layer.
 game controller -> /cmd_vel_teleop -> twist_mux -> /cmd_vel
                                                   |
                                       mowgli_hardware bridge
-                                        |         |          |
-                              wheel odom raw   IMU raw   USB protocol
-                                        |         |          |
+                                        |                    |
+                                  wheel odom raw        USB protocol
+                                        |                    |
                                   measurement normalizer     |
-                                        |         |          |
-                                 wheel odom      IMU          |
-                                        \         /           |
+                                        |                    |
+                                   wheel odom                 |
+                                        \                    |
+WT901 over Raspberry Pi I2C -> /imu/wt901/data_raw            |
+                                         \                   |
                                       robot_localization      |
                                               |               |
                                       /odometry/filtered      |
@@ -79,6 +81,7 @@ The launch starts:
 - asynchronous `slam_toolbox` mapping (`/map`, `map -> odom`)
 - YDLidar G2 driver (`/scan`)
 - PMW3901 optical-flow driver (`/optical_flow/raw`, `/optical_flow/twist`)
+- WT901 I2C IMU driver (`/imu/wt901/data_raw`)
 - front camera driver (`/camera/image_raw`, `/camera/camera_info`)
 - Foxglove bridge on `ws://bagheera.local:8765`
 
@@ -121,7 +124,7 @@ Then inspect the firmware link and telemetry:
 ros2 topic echo /hardware_bridge/status --once
 ros2 topic echo /hardware_bridge/emergency --once
 ros2 topic echo /wheel_odom --once
-ros2 topic echo /imu/data --once
+ros2 topic echo /imu/wt901/data_raw --once
 ros2 topic echo /optical_flow/twist --once
 ros2 topic echo /odometry/filtered --once
 ros2 topic echo /camera/camera_info --once
@@ -129,14 +132,13 @@ ros2 topic echo /map --once
 ros2 topic hz /cmd_vel_teleop
 ```
 
-The EKF fuses encoder forward/yaw velocity, PMW3901 planar ground velocity and
-the IMU Z angular velocity when the firmware publishes IMU packets. It keeps
-running with the available inputs if one source is absent. Sensor dimensions,
-frames and conservative non-zero covariances are populated for standard ROS 2
-consumers. The camera uses a provisional 90-degree pinhole model (`fx=fy=960`)
-so Foxglove can render it. These values are visualization defaults, not a
-measured calibration, and must be replaced by a real fisheye calibration
-before using AprilTag poses, bearings or distances.
+The EKF fuses encoder forward velocity, PMW3901 planar ground velocity and the
+WT901's bias-corrected Z angular velocity. Wheel-derived yaw is deliberately
+excluded so wheel slip cannot override the gyro. The WT901 node publishes SI
+units and explicitly marks orientation as unavailable; magnetometer yaw and
+gravity-contaminated acceleration are not fused. It keeps running with the
+available inputs if one source is absent. Sensor dimensions, frames and
+conservative non-zero covariances are populated for standard ROS 2 consumers.
 
 Robot dimensions and all sensor poses are centralized in
 `src/bagheera_base/config/robot.yaml`. The PMW height is measured; the current
@@ -179,10 +181,8 @@ PYTHONPATH=src/bagheera_base python3.11 -m unittest discover \
 
 ## Next milestones
 
-1. Measure the remaining LiDAR, camera and IMU offsets and calibrate the
-   fisheye intrinsics.
-2. The EKF's IMU input remains configured for a future gyro; it is expected to
-   stay silent on the current hardware because no gyro is installed.
-3. Drive a slow closed loop, verify loop closure and save the first office map.
-4. Add Nav2 using the saved map and the existing `/odometry/filtered` output.
-5. Add camera-based AprilTag docking and charging verification.
+1. Measure the remaining LiDAR, camera and IMU offsets.
+2. Drive a slow closed loop, verify the WT901 yaw sign and SLAM loop closure,
+   then save the first office map.
+3. Add Nav2 using the saved map and the existing `/odometry/filtered` output.
+4. Add camera-based AprilTag docking and charging verification.
