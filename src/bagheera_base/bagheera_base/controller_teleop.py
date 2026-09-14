@@ -1,6 +1,7 @@
 """Pygame controller teleoperation node publishing standard ROS 2 velocity."""
 
 import os
+import time
 from typing import Optional
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
@@ -26,6 +27,7 @@ class ControllerTeleop(Node):
         self.declare_parameter("max_linear_speed", 0.25)
         self.declare_parameter("max_angular_speed", 1.5)
         self.declare_parameter("publish_rate", 20.0)
+        self.declare_parameter("joystick_rescan_interval", 1.0)
         self.declare_parameter("cmd_vel_topic", "/cmd_vel_teleop")
 
         self._joystick_index = self.get_parameter("joystick_index").value
@@ -37,13 +39,20 @@ class ControllerTeleop(Node):
         self._max_angular = self.get_parameter("max_angular_speed").value
         cmd_vel_topic = self.get_parameter("cmd_vel_topic").value
         publish_rate = self.get_parameter("publish_rate").value
+        self._rescan_interval = float(
+            self.get_parameter("joystick_rescan_interval").value
+        )
         if publish_rate <= 0.0:
             raise ValueError("publish_rate must be positive")
+        if self._rescan_interval <= 0.0:
+            raise ValueError("joystick_rescan_interval must be positive")
 
         pygame.init()
         pygame.display.init()
         pygame.joystick.init()
         self._joystick: Optional[pygame.joystick.Joystick] = None
+        self._joystick_instance_id: Optional[int] = None
+        self._next_rescan_at = 0.0
         self._last_deadman = False
         self._missing_logged = False
         self._publisher = self.create_publisher(TwistStamped, cmd_vel_topic, 10)
@@ -53,10 +62,48 @@ class ControllerTeleop(Node):
             % (cmd_vel_topic, self._deadman_button)
         )
 
+    def _release_joystick(self) -> None:
+        if self._joystick is not None:
+            try:
+                self._joystick.quit()
+            except pygame.error:
+                pass
+        self._joystick = None
+        self._joystick_instance_id = None
+
+    def _disconnect_joystick(self, reason: str) -> None:
+        if self._last_deadman:
+            self._publish(0.0, 0.0)
+        self._last_deadman = False
+        self._release_joystick()
+        # SDL can retain its pre-disconnect device list inside a container.
+        # Force a full joystick-only rescan on the next timer tick.
+        self._next_rescan_at = 0.0
+        self.get_logger().warning("Controller disconnected: %s" % reason)
+
+    def _pump_hotplug_events(self) -> None:
+        for event in pygame.event.get():
+            if (
+                event.type == pygame.JOYDEVICEREMOVED
+                and self._joystick_instance_id is not None
+                and getattr(event, "instance_id", None) == self._joystick_instance_id
+            ):
+                self._disconnect_joystick("device removed")
+
+    def _refresh_joystick_subsystem(self) -> None:
+        self._release_joystick()
+        pygame.joystick.quit()
+        pygame.joystick.init()
+        pygame.event.pump()
+        self._next_rescan_at = time.monotonic() + self._rescan_interval
+
     def _discover_joystick(self) -> bool:
         pygame.event.pump()
+        self._pump_hotplug_events()
         if self._joystick is not None and self._joystick.get_init():
             return True
+        if time.monotonic() >= self._next_rescan_at:
+            self._refresh_joystick_subsystem()
         if pygame.joystick.get_count() <= self._joystick_index:
             if not self._missing_logged:
                 self.get_logger().warning(
@@ -66,6 +113,7 @@ class ControllerTeleop(Node):
             return False
         self._joystick = pygame.joystick.Joystick(self._joystick_index)
         self._joystick.init()
+        self._joystick_instance_id = self._joystick.get_instance_id()
         self._missing_logged = False
         self.get_logger().info("Using controller: %s" % self._joystick.get_name())
         return True
@@ -117,11 +165,7 @@ class ControllerTeleop(Node):
                 self._publish(0.0, 0.0)
             self._last_deadman = deadman
         except pygame.error as error:
-            if self._last_deadman:
-                self._publish(0.0, 0.0)
-            self._last_deadman = False
-            self._joystick = None
-            self.get_logger().warning("Controller disconnected: %s" % error)
+            self._disconnect_joystick(str(error))
 
     def destroy_node(self) -> bool:
         if self._last_deadman:
