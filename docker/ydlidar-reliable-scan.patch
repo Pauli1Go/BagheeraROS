@@ -1,0 +1,13 @@
+diff --git a/src/ydlidar_ros2_driver_node.cpp b/src/ydlidar_ros2_driver_node.cpp
+index 72cc684..f584639 100644
+--- a/src/ydlidar_ros2_driver_node.cpp
++++ b/src/ydlidar_ros2_driver_node.cpp
+@@ -185,6 +185,7 @@ int main(int argc, char *argv[]) {
+   }
+   
+-  auto laser_pub = node->create_publisher<sensor_msgs::msg::LaserScan>("scan", rclcpp::SensorDataQoS());
++  auto laser_pub = node->create_publisher<sensor_msgs::msg::LaserScan>(
++    "scan", rclcpp::QoS(rclcpp::KeepLast(5)).reliable().durability_volatile());
+   auto pc_pub = node->create_publisher<sensor_msgs::msg::PointCloud>("point_cloud", rclcpp::SensorDataQoS());
+   
+   auto stop_scan_service =

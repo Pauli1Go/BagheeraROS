@@ -6,9 +6,10 @@ provides Bagheera's own robot model, measurement normalization, local sensor
 fusion and teleoperation, and will later add indoor LiDAR navigation and
 AprilTag docking.
 
-The current platform bringup deliberately starts no GNSS, Nav2, coverage or
-mower behavior. LiDAR, optical flow, the front camera and online 2D SLAM are
-part of the base bringup. Nav2 autonomous navigation remains the next layer.
+The current platform bringup deliberately starts no GNSS, Nav2 planner,
+coverage or mower behavior. LiDAR, optical flow, the front camera, a static
+map server and AMCL localization are part of the base bringup. Nav2 autonomous
+navigation remains the next layer.
 
 ## Architecture
 
@@ -29,7 +30,7 @@ WT901 over Raspberry Pi I2C -> /imu/wt901/data_raw            |
                                               |               |
                                       /odometry/filtered      |
                                               |               |
-                                     slam_toolbox + /scan     |
+                                      map_server + AMCL       |
                                               |               |
                                       /map + map -> odom      |
                                                               |
@@ -82,20 +83,32 @@ The launch starts:
 - PMW3901 optical-flow driver (`/optical_flow/raw`, `/optical_flow/twist`)
 - WT901 I2C IMU driver (`/imu/wt901/data_raw`)
 - front camera driver (`/camera/image_raw`, `/camera/camera_info`)
+- static map server (`/map`) and AMCL localization (`map -> odom`)
 - Foxglove bridge on `ws://bagheera.local:8765`
 
-Online mapping is deliberately not started at boot. Start only the additional
-SLAM process when a new mapping session is wanted:
+The saved map selected by `maps/current.yaml` is loaded at boot. Online mapping
+is deliberately not started. AMCL needs an initial robot pose after startup;
+publish a `geometry_msgs/msg/PoseWithCovarianceStamped` on `/initialpose` from
+Foxglove at the robot's real position in the map. It then keeps `map -> odom`
+aligned while the robot moves.
+
+For a new mapping session, stop the normal Compose service, start the base
+without static-map localization, and then start SLAM Toolbox:
 
 ```bash
-docker exec -d bagheera-base /bagheera_entrypoint.sh \
+docker compose stop bagheera-base
+docker compose run --rm --name bagheera-mapping bagheera-base \
+  ros2 launch bagheera_base manual_control.launch.py \
+  use_map_localization:=false use_foxglove:=true
+# In a second shell:
+docker exec -d bagheera-mapping /bagheera_entrypoint.sh \
   ros2 launch bagheera_base mapping.launch.py
 ```
 
 In Foxglove, add a 3D panel, select `map` as the fixed frame and enable
 `/map`, `/scan`, the robot model and `/odometry/filtered`. The occupancy map
 then updates every two seconds while the robot is driven manually. A normal
-container or host restart returns to base operation without mapping.
+container or host restart returns to the saved-map localization mode.
 
 Hold controller button 4 while driving. The default mapping is axis 3 for
 forward/reverse and axis 2 for steering, so the right stick controls both.
@@ -173,6 +186,12 @@ ros2 service call /slam_toolbox/serialize_map \
 This produces the map files in the repository's `maps/` directory on the Pi.
 The serialized pose graph is what `slam_toolbox` later uses to continue mapping
 or run in localization mode; the YAML/PGM pair is useful for Nav2 map tooling.
+Select the occupancy map used at boot with a stable symlink:
+
+```bash
+cd maps
+ln -sfn office.yaml current.yaml
+```
 
 The camera, LiDAR and optical-flow wiring checks, detected hardware revisions
 and reproducible standalone probes are documented in

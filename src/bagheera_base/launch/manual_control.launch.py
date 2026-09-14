@@ -60,7 +60,9 @@ def generate_launch_description():
     sensor_config = str(package_share / "config" / "sensors.yaml")
     robot_config = package_share / "config" / "robot.yaml"
     localization_config = str(package_share / "config" / "localization.yaml")
-    slam_config = str(package_share / "config" / "slam.yaml")
+    nav2_localization_config = str(
+        package_share / "config" / "nav2_localization.yaml"
+    )
 
     serial_port = LaunchConfiguration("serial_port")
     use_lidar = LaunchConfiguration("use_lidar")
@@ -68,7 +70,7 @@ def generate_launch_description():
     use_wt901 = LaunchConfiguration("use_wt901")
     use_camera = LaunchConfiguration("use_camera")
     use_sensor_fusion = LaunchConfiguration("use_sensor_fusion")
-    use_slam = LaunchConfiguration("use_slam")
+    use_map_localization = LaunchConfiguration("use_map_localization")
     use_foxglove = LaunchConfiguration("use_foxglove")
 
     arguments = [
@@ -82,7 +84,12 @@ def generate_launch_description():
         DeclareLaunchArgument("use_wt901", default_value="true"),
         DeclareLaunchArgument("use_camera", default_value="true"),
         DeclareLaunchArgument("use_sensor_fusion", default_value="true"),
-        DeclareLaunchArgument("use_slam", default_value="false"),
+        DeclareLaunchArgument("use_map_localization", default_value="true"),
+        DeclareLaunchArgument(
+            "map",
+            default_value="/bagheera_ws/maps/current.yaml",
+            description="Absolute path to the static occupancy-map YAML",
+        ),
         DeclareLaunchArgument("use_foxglove", default_value="true"),
         DeclareLaunchArgument("foxglove_address", default_value="0.0.0.0"),
         DeclareLaunchArgument("foxglove_port", default_value="8765"),
@@ -198,21 +205,22 @@ def generate_launch_description():
         remappings=[("odometry/filtered", "/odometry/filtered")],
         condition=IfCondition(use_sensor_fusion),
     )
-    slam = IncludeLaunchDescription(
+    map_localization = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             str(
-                Path(get_package_share_directory("slam_toolbox"))
+                Path(get_package_share_directory("nav2_bringup"))
                 / "launch"
-                / "online_async_launch.py"
+                / "localization_launch.py"
             )
         ),
         launch_arguments={
             "autostart": "true",
-            "use_lifecycle_manager": "false",
             "use_sim_time": "false",
-            "slam_params_file": slam_config,
+            "use_composition": "False",
+            "map": LaunchConfiguration("map"),
+            "params_file": nav2_localization_config,
         }.items(),
-        condition=IfCondition(use_slam),
+        condition=IfCondition(use_map_localization),
     )
     foxglove = Node(
         package="foxglove_bridge",
@@ -246,7 +254,7 @@ def generate_launch_description():
             wt901,
             camera,
             ekf,
-            slam,
+            map_localization,
             foxglove,
         ]
     )

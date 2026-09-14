@@ -208,8 +208,13 @@ low `imu0_twist_rejection_threshold`; with the WT901 covariance, the previous
 1.5-sigma threshold rejected ordinary turns as outliers.
 
 Mapping is disabled by default in `manual_control.launch.py`, so a normal boot
-does not create or modify a map. Start the mapping-only launch explicitly with
-`ros2 launch bagheera_base mapping.launch.py`. Parameters are in
+does not create or modify a map. Instead, Nav2's map server publishes the saved
+occupancy grid selected by `/bagheera_ws/maps/current.yaml`, and AMCL owns the
+global `map -> odom` correction after an initial pose is supplied on
+`/initialpose`. This is the localization chain used later by the Nav2 planner.
+
+For a new mapping run, start the base with `use_map_localization:=false` and
+then launch `ros2 launch bagheera_base mapping.launch.py`. Parameters are in
 `src/bagheera_base/config/slam.yaml`. The 5 cm map resolution matches the first
 indoor proof of concept; travel thresholds are deliberately low enough to
 accept the robot's slow manual movements.

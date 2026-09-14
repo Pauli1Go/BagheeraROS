@@ -18,6 +18,10 @@
   <exec_depend>mowgli_bringup</exec_depend>
   <exec_depend>mowgli_hardware</exec_depend>
   <exec_depend>mowgli_interfaces</exec_depend>
+  <exec_depend>nav2_amcl</exec_depend>
+  <exec_depend>nav2_bringup</exec_depend>
+  <exec_depend>nav2_lifecycle_manager</exec_depend>
+  <exec_depend>nav2_map_server</exec_depend>
   <exec_depend>nav_msgs</exec_depend>
   <exec_depend>foxglove_bridge</exec_depend>
   <exec_depend>python3-pygame</exec_depend>
