@@ -71,7 +71,7 @@ controller_server:
       use_rotate_to_heading: true
       allow_reversing: false
       rotate_to_heading_min_angle: 0.50
-      max_angular_accel: 0.8
+      max_angular_accel: 2.0
       max_robot_pose_search_dist: 5.0
       use_interpolation: true
 
@@ -109,7 +109,7 @@ local_costmap:
           inf_is_valid: true
       inflation_layer:
         plugin: nav2_costmap_2d::InflationLayer
-        inflation_radius: 0.45
+        inflation_radius: 0.30
         cost_scaling_factor: 5.0
       always_send_full_costmap: true
       service_introspection_mode: disabled
@@ -127,10 +127,17 @@ global_costmap:
       track_unknown_space: true
       footprint: "[[0.48, 0.20], [0.48, -0.20], [-0.12, -0.20], [-0.12, 0.20]]"
       footprint_padding: 0.05
-      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+      plugins: ["static_layer", "denoise_layer", "obstacle_layer", "inflation_layer"]
       static_layer:
         plugin: nav2_costmap_2d::StaticLayer
         map_subscribe_transient_local: true
+      # Remove only tiny artifacts baked into the saved map. The live obstacle
+      # layer runs afterwards, so current LiDAR returns remain untouched.
+      denoise_layer:
+        plugin: nav2_costmap_2d::DenoiseLayer
+        enabled: true
+        minimal_group_size: 4
+        group_connectivity_type: 8
       obstacle_layer:
         plugin: nav2_costmap_2d::ObstacleLayer
         enabled: true
@@ -150,7 +157,7 @@ global_costmap:
           inf_is_valid: true
       inflation_layer:
         plugin: nav2_costmap_2d::InflationLayer
-        inflation_radius: 0.45
+        inflation_radius: 0.30
         cost_scaling_factor: 5.0
       always_send_full_costmap: true
       service_introspection_mode: disabled
@@ -194,7 +201,7 @@ behavior_server:
     simulate_ahead_time: 1.5
     max_rotational_vel: 0.50
     min_rotational_vel: 0.10
-    rotational_acc_lim: 0.8
+    rotational_acc_lim: 2.0
 
 velocity_smoother:
   ros__parameters:
@@ -202,11 +209,11 @@ velocity_smoother:
     enable_stamped_cmd_vel: true
     smoothing_frequency: 20.0
     scale_velocities: false
-    feedback: CLOSED_LOOP
+    feedback: OPEN_LOOP
     max_velocity: [0.16, 0.0, 0.50]
     min_velocity: [-0.08, 0.0, -0.50]
-    max_accel: [0.25, 0.0, 0.80]
-    max_decel: [-0.35, 0.0, -1.00]
+    max_accel: [0.25, 0.0, 2.00]
+    max_decel: [-0.35, 0.0, -2.50]
     odom_topic: /odometry/filtered
     odom_duration: 0.2
     deadband_velocity: [0.0, 0.0, 0.0]

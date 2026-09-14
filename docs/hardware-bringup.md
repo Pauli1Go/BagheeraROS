@@ -233,6 +233,10 @@ docking velocity sources before `/cmd_vel` reaches the hardware bridge. The
 initial policy is a static stop envelope only: it never commands an avoidance
 motion itself. Stale scan data also produces zero velocity.
 
+The global costmap's denoise layer removes saved-map groups smaller than four
+connected cells before the live obstacle layer is applied. This suppresses
+small mapping artifacts without hiding current LiDAR returns.
+
 ## Drive calibration
 
 Bagheera overrides the MowgliNext wheel scale in

@@ -105,7 +105,9 @@ Bagheera goal bridge forwards it to Nav2's `/navigate_to_pose` action.
 
 The first navigation tuning is capped at 0.16 m/s, matching controller teleop.
 Both global and local costmaps consume `/scan`; mapped and live obstacles are
-inflated around the physical chassis footprint. The final velocity chain is:
+inflated around the physical chassis footprint. The global costmap removes
+saved-map obstacle artifacts smaller than four connected 5 cm cells before
+adding current LiDAR obstacles. The final velocity chain is:
 
 ```text
 Nav2/controller -> velocity_smoother -> twist_mux --+--> collision_monitor -> STM32
