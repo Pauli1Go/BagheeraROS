@@ -91,7 +91,9 @@ updates every two seconds while the robot is driven manually.
 
 Hold controller button 4 while driving. The default mapping is axis 3 for
 forward/reverse and axis 2 for steering, so the right stick controls both.
-The current limits are 0.50 m/s linear and 1.50 rad/s angular.
+For manual mapping, the current limits are 0.16 m/s linear and 0.50 rad/s
+angular. These conservative values reduce motion and scan distortion between
+successive 9.6 Hz LiDAR scans.
 
 Keep both drive wheels clear of the floor for the first test. Releasing the
 deadman button sends zero velocity; loss of commands is additionally bounded
