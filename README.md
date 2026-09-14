@@ -3,13 +3,12 @@
 ROS 2 overlay for the Bagheera office robot. MowgliNext v1.1.0 provides the
 STM32 wire protocol, hardware bridge and velocity multiplexer. This repository
 provides Bagheera's own robot model, measurement normalization, local sensor
-fusion and teleoperation, and will later add indoor LiDAR navigation and
-AprilTag docking.
+fusion, teleoperation and indoor LiDAR navigation. AprilTag docking remains a
+later milestone.
 
-The current platform bringup deliberately starts no GNSS, Nav2 planner,
-coverage or mower behavior. LiDAR, optical flow, the front camera, a static
-map server and AMCL localization are part of the base bringup. Nav2 autonomous
-navigation remains the next layer.
+The current platform bringup deliberately starts no GNSS, coverage or mower
+behavior. LiDAR, optical flow, the front camera, static-map localization and
+Nav2 point-to-point navigation are part of the base bringup.
 
 ## Architecture
 
@@ -84,6 +83,9 @@ The launch starts:
 - WT901 I2C IMU driver (`/imu/wt901/data_raw`)
 - front camera driver (`/camera/image_raw`, `/camera/camera_info`)
 - static map server (`/map`) and AMCL localization (`map -> odom`)
+- Nav2 planner, regulated-pure-pursuit controller and velocity smoother
+- LiDAR collision monitor after `twist_mux`, protecting autonomous and manual motion
+- Foxglove `/goal_pose` bridge to Nav2's `NavigateToPose` action
 - Foxglove bridge on `ws://bagheera.local:8765`
 
 The saved map selected by `maps/current.yaml` is loaded at boot. Online mapping
@@ -92,6 +94,30 @@ publish a `geometry_msgs/msg/PoseWithCovarianceStamped` on `/initialpose` from
 Foxglove at the robot's real position in the map. It then keeps `map -> odom`
 aligned while the robot moves.
 
+## Navigate from Foxglove
+
+First set the approximate robot pose using the 3D panel's `2D pose estimate`
+publisher on `/initialpose`. For a driving goal, configure `2D pose` in the
+same panel to publish `geometry_msgs/msg/PoseStamped` on `/goal_pose` (the
+legacy Foxglove default `/move_base_simple/goal` is also accepted). Click the
+target position and drag the arrow into the desired final heading. The
+Bagheera goal bridge forwards it to Nav2's `/navigate_to_pose` action.
+
+The first navigation tuning is capped at 0.16 m/s, matching controller teleop.
+Both global and local costmaps consume `/scan`; mapped and live obstacles are
+inflated around the physical chassis footprint. The final velocity chain is:
+
+```text
+Nav2/controller -> velocity_smoother -> twist_mux --+--> collision_monitor -> STM32
+controller teleop ------------------------------->--+
+```
+
+The collision monitor uses raw `/scan`, stops on three or more returns inside
+the configured chassis safety envelope, and stops fail-safe if LiDAR data is
+older than 0.5 seconds. Its state is published on `/collision_monitor_state`.
+The stop envelope and Nav2 parameters are in `collision_monitor.yaml` and
+`nav2_navigation.yaml`.
+
 For a new mapping session, stop the normal Compose service, start the base
 without static-map localization, and then start SLAM Toolbox:
 
@@ -99,7 +125,7 @@ without static-map localization, and then start SLAM Toolbox:
 docker compose stop bagheera-base
 docker compose run --rm --name bagheera-mapping bagheera-base \
   ros2 launch bagheera_base manual_control.launch.py \
-  use_map_localization:=false use_foxglove:=true
+  use_map_localization:=false use_navigation:=false use_foxglove:=true
 # In a second shell:
 docker exec -d bagheera-mapping /bagheera_entrypoint.sh \
   ros2 launch bagheera_base mapping.launch.py
@@ -213,5 +239,5 @@ PYTHONPATH=src/bagheera_base python3.11 -m unittest discover \
 1. Measure the remaining LiDAR, camera and IMU offsets.
 2. Drive a slow closed loop, verify the WT901 yaw sign and SLAM loop closure,
    then save the first office map.
-3. Add Nav2 using the saved map and the existing `/odometry/filtered` output.
+3. Tune Nav2 goal following and collision distances in the real office.
 4. Add camera-based AprilTag docking and charging verification.

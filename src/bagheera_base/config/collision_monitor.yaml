@@ -1,0 +1,33 @@
+collision_monitor:
+  ros__parameters:
+    use_sim_time: false
+    enabled: true
+    base_frame_id: base_link
+    odom_frame_id: odom
+    cmd_vel_in_topic: /cmd_vel_requested
+    cmd_vel_out_topic: /cmd_vel
+    state_topic: /collision_monitor_state
+    enable_stamped_cmd_vel: true
+    transform_tolerance: 0.3
+    source_timeout: 0.5
+    base_shift_correction: true
+    stop_pub_timeout: 1.0
+
+    # First navigation milestone: any sufficiently dense LiDAR return in the
+    # chassis safety envelope stops every velocity source after twist_mux.
+    polygons: ["LidarStop"]
+    LidarStop:
+      type: polygon
+      action_type: stop
+      points: "[[0.70, 0.36], [0.70, -0.36], [-0.32, -0.36], [-0.32, 0.36]]"
+      min_points: 3
+      visualize: true
+      polygon_pub_topic: /collision_monitor/stop_zone
+      enabled: true
+
+    observation_sources: ["scan"]
+    scan:
+      type: scan
+      topic: /scan
+      source_timeout: 0.5
+      enabled: true

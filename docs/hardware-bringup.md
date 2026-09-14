@@ -213,11 +213,25 @@ occupancy grid selected by `/bagheera_ws/maps/current.yaml`, and AMCL owns the
 global `map -> odom` correction after an initial pose is supplied on
 `/initialpose`. This is the localization chain used later by the Nav2 planner.
 
-For a new mapping run, start the base with `use_map_localization:=false` and
-then launch `ros2 launch bagheera_base mapping.launch.py`. Parameters are in
+For a new mapping run, start the base with `use_map_localization:=false
+use_navigation:=false` and then launch `ros2 launch bagheera_base
+mapping.launch.py`. Parameters are in
 `src/bagheera_base/config/slam.yaml`. The 5 cm map resolution matches the first
 indoor proof of concept; travel thresholds are deliberately low enough to
 accept the robot's slow manual movements.
+
+## Nav2 point-to-point navigation
+
+`manual_control.launch.py` starts the Nav2 planner, regulated-pure-pursuit
+controller, velocity smoother and Foxglove goal bridge by default. Foxglove's
+`2D pose` click publisher sends a `geometry_msgs/msg/PoseStamped` to
+`/goal_pose`; the bridge turns that into a `NavigateToPose` action goal.
+
+The YDLidar feeds both costmap obstacle layers. A separate collision monitor is
+placed after `twist_mux`, so it gates Nav2, controller, tuning and future
+docking velocity sources before `/cmd_vel` reaches the hardware bridge. The
+initial policy is a static stop envelope only: it never commands an avoidance
+motion itself. Stale scan data also produces zero velocity.
 
 ## Drive calibration
 
