@@ -54,7 +54,7 @@ controller_server:
       min_lookahead_dist: 0.20
       max_lookahead_dist: 0.45
       lookahead_time: 1.5
-      rotate_to_heading_angular_vel: 0.40
+      rotate_to_heading_angular_vel: 0.50
       transform_tolerance: 0.30
       use_velocity_scaled_lookahead_dist: true
       min_approach_linear_velocity: 0.05
@@ -192,7 +192,7 @@ behavior_server:
     robot_base_frame: base_link
     transform_tolerance: 0.30
     simulate_ahead_time: 1.5
-    max_rotational_vel: 0.40
+    max_rotational_vel: 0.50
     min_rotational_vel: 0.10
     rotational_acc_lim: 0.8
 
