@@ -7,6 +7,7 @@ services:
         MOWGLI_IMAGE: ghcr.io/mowglinext/mowglinext/mowgli-ros2:1.1.0
     image: bagheera-ros:local
     container_name: bagheera-base
+    entrypoint: /bagheera_entrypoint.sh
     network_mode: host
     ipc: host
     privileged: true

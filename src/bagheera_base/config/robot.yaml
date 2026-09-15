@@ -1,21 +1,23 @@
 bagheera:
   ros__parameters:
     # REP-103 model: x forward, y left, z up; dimensions are metres.
-    chassis_length: 0.60
-    chassis_width: 0.40
+    # Physical outline was measured from the sensor cluster, which is 0.08 m
+    # ahead of the drive axle: 0.33 m front, 0.18 m rear from base_link.
+    chassis_length: 0.51
+    chassis_width: 0.34
     chassis_height: 0.19
-    chassis_center_x: 0.18
+    chassis_center_x: 0.075
     chassis_mass_kg: 8.76
     wheel_radius: 0.04475
     wheel_width: 0.04
-    wheel_track: 0.325
+    # base_link is the midpoint of the differential-drive axle.
+    wheel_track: 0.32
+    axle_x: 0.0
     caster_radius: 0.03
     caster_track: 0.36
 
-    # Sensor origins relative to base_link at the drive-axle centre.
-    # Heights/orientations are usable defaults. Measure x/y offsets before
-    # precision mapping and update only this file.
-    imu_x: 0.18
+    # WT901, PMW3901 and LiDAR share an x/y origin 8 cm ahead of the axle.
+    imu_x: 0.08
     imu_y: 0.0
     imu_z: 0.095
     imu_roll: 0.0
@@ -23,19 +25,20 @@ bagheera:
     # WT901 Y+ points forward. A -90 degree child-frame yaw maps its Y axis to
     # REP-103 base_link X+ while keeping Z+ upward.
     imu_yaw: -1.5707963267948966
-    lidar_x: 0.0
+    lidar_x: 0.08
     lidar_y: 0.0
     lidar_z: 0.30
     # A static target centred directly in front was measured at +85.5 deg in
     # the raw scan. Rotate lidar_link by -85.5 deg so ROS angle 0 points along
     # REP-103 base_link X+.
     lidar_yaw: -1.4922565104551517
-    optical_flow_x: 0.0
+    optical_flow_x: 0.08
     optical_flow_y: 0.0
     # Sensor is measured 90 mm above the floor; base_link is one wheel radius
     # above it, hence 0.09000 - 0.04475 = 0.04525 m.
     optical_flow_z: 0.04525
-    camera_x: 0.48
+    # Front-facing camera at the physical front edge.
+    camera_x: 0.33
     camera_y: 0.0
     camera_z: 0.12
     camera_roll: 0.0
@@ -52,7 +55,7 @@ hardware_bridge:
     high_level_rate: 2.0
     min_linear_vel: 0.05
     max_mps: 0.5
-    wheel_track: 0.325
+    wheel_track: 0.32
     ticks_per_meter: 268.1
     wheel_pid_kp: 0.2
     wheel_pid_ki: 0.092

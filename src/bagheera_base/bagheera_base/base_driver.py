@@ -379,10 +379,9 @@ class BagheeraBaseDriver(Node):
         odom.pose.pose.orientation = orientation
         odom.twist.twist.linear.x = update.linear_velocity
         odom.twist.twist.angular.z = update.angular_velocity
-        # The pose/tf above describe the axle (pivot center), but the odom
-        # frame convention and the EKF expect the twist at child_frame_id
-        # (= base_link, 8 cm ahead at the LiDAR). Convert so all velocity
-        # sources describe the same point.
+        # The pose/tf above have already been shifted from the axle to
+        # base_link. Shift the twist to that same point as well so every
+        # sensor-fusion input describes the common LiDAR/IMU/flow origin.
         vx_base, vy_base = axle_to_base_link_twist(
             update.linear_velocity, update.angular_velocity, self._axle_to_base_link_m
         )

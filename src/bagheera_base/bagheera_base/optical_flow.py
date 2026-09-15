@@ -40,6 +40,7 @@ class OpticalFlowNode(Node):
         # Mahalanobis gate drops them instead of integrating the phantom.
         self.declare_parameter("rotation_gate_rad_s", 0.25)
         self.declare_parameter("rotation_variance", 1000000.0)
+        self.declare_parameter("rotation_gate_enabled", True)
 
         self._frame_id = str(self.get_parameter("frame_id").value)
         self._meters_per_count = float(self.get_parameter("mount_height_m").value) * float(
@@ -55,6 +56,9 @@ class OpticalFlowNode(Node):
         self._lever_x = float(self.get_parameter("lever_arm_x").value)
         self._lever_y = float(self.get_parameter("lever_arm_y").value)
         self._rotation_gate = float(self.get_parameter("rotation_gate_rad_s").value)
+        self._rotation_gate_enabled = bool(
+            self.get_parameter("rotation_gate_enabled").value
+        )
         self._rotation_variance = float(
             self.get_parameter("rotation_variance").value
         )
@@ -166,13 +170,19 @@ class OpticalFlowNode(Node):
                 vy -= wz * self._lever_x
 
         variance = max(0.0025, 0.25 / max(1, quality))
-        # Gate out flow during pivots: the swirl artifact would otherwise be
-        # fused as phantom translation (measured ~0.2 m per 180 deg turn).
+        # This optional gate is only correct when base_link is at the axle and
+        # the flow sensor is offset from it. Bagheera's base_link is at the
+        # sensor, so its lateral motion during a pivot is real and the gate is
+        # disabled in sensors.yaml.
         if wz is None:
             wz = self._mean_wz_between(
                 now_ns - int(0.3 * 1_000_000_000), now_ns
             )
-        if wz is not None and abs(wz) > self._rotation_gate:
+        if (
+            self._rotation_gate_enabled
+            and wz is not None
+            and abs(wz) > self._rotation_gate
+        ):
             variance = self._rotation_variance
 
         twist.twist.twist.linear.x = vx

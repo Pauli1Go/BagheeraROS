@@ -117,9 +117,13 @@ controller teleop ----------------------> twist_mux -> STM32
 The collision monitor is not launched. Teleop bypasses all Nav2 filtering;
 firmware stop conditions and watchdog remain unchanged. Nav2 retains live
 obstacle layers, RPP collision detection and collision-checked BackUp.
-The dormant monitor box in `collision_monitor.yaml` is x=[-0.17, 0.55],
-y=[-0.23, 0.23], min_points=6. Both costmaps use 0.02 m footprint padding
-and 0.25 m inflation; the physical footprint is unchanged.
+`base_link` is the midpoint of the 0.32 m differential-drive axle. The common
+LiDAR/WT901/PMW3901 origin is 0.08 m ahead of it, so those sensor links trace
+an 8 cm circle during an in-place turn. The measured chassis bounds relative
+to the axle are x=[-0.18, 0.33] and y=[-0.17, 0.17]. Nav2 and the dormant
+monitor box use x=[-0.19, 0.34] and y=[-0.18, 0.18], incorporating the requested
+1 cm safety margin directly (`footprint_padding=0.0`). Both costmaps use
+0.25 m inflation.
 
 The installed `behavior_trees/navigate_no_spin.xml` is selected through
 `default_nav_to_pose_bt_xml` using the package share path. Four recovery

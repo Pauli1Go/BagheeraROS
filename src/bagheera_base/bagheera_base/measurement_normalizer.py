@@ -9,6 +9,8 @@ from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from sensor_msgs.msg import CameraInfo, Imu
 
+from .kinematics import axle_to_base_link_twist, shift_twist_covariance_x
+
 
 def _all_zero(values) -> bool:
     return all(value == 0.0 for value in values)
@@ -35,6 +37,7 @@ class MeasurementNormalizer(Node):
         super().__init__("bagheera_measurement_normalizer")
         self.declare_parameter("odom_frame_id", "odom")
         self.declare_parameter("base_frame_id", "base_link")
+        self.declare_parameter("axle_to_base_link_m", 0.0)
         self.declare_parameter("imu_frame_id", "imu_link")
         self.declare_parameter("camera_frame_id", "camera_optical_frame")
         self.declare_parameter("camera_width", 1920)
@@ -55,6 +58,11 @@ class MeasurementNormalizer(Node):
 
         self._odom_frame = str(self.get_parameter("odom_frame_id").value)
         self._base_frame = str(self.get_parameter("base_frame_id").value)
+        self._axle_to_base_link_m = float(
+            self.get_parameter("axle_to_base_link_m").value
+        )
+        if not math.isfinite(self._axle_to_base_link_m):
+            raise ValueError("axle_to_base_link_m must be finite")
         self._imu_frame = str(self.get_parameter("imu_frame_id").value)
         self._camera_frame = str(self.get_parameter("camera_frame_id").value)
         self._camera_width = int(self.get_parameter("camera_width").value)
@@ -139,6 +147,18 @@ class MeasurementNormalizer(Node):
         if _all_zero(message.twist.covariance):
             message.twist.covariance = _diagonal_covariance(
                 self._wheel_twist_covariance
+            )
+        if self._axle_to_base_link_m != 0.0:
+            twist = message.twist.twist
+            axle_vx = twist.linear.x
+            axle_vy = twist.linear.y
+            base_vx, offset_vy = axle_to_base_link_twist(
+                axle_vx, twist.angular.z, self._axle_to_base_link_m
+            )
+            twist.linear.x = base_vx
+            twist.linear.y = axle_vy + offset_vy
+            message.twist.covariance = shift_twist_covariance_x(
+                list(message.twist.covariance), self._axle_to_base_link_m
             )
         self._wheel_publisher.publish(message)
 

@@ -25,6 +25,7 @@ def _robot_description(package_share: Path, robot_config: Path) -> dict:
         "wheel_radius",
         "wheel_width",
         "wheel_track",
+        "axle_x",
         "caster_radius",
         "caster_track",
         "imu_x",

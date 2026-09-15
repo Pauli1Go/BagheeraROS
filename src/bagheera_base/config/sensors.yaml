@@ -42,13 +42,11 @@ bagheera_optical_flow:
     invert_x: false
     invert_y: false
     minimum_quality: 0
-    # base_link sits at the LiDAR position, and the flow sensor is mounted at
-    # base_link (both 8 cm ahead of the axle, which is the pivot center).
-    # So the flow already measures the true base_link velocity; pivots sweep
-    # the sensor point and that sweep is real base_link motion. No lever-arm
-    # correction (parameters kept for future use, must stay 0).
-    lever_arm_x: 0.0
+    # The PMW3901 is 8 cm ahead of axle-centred base_link. Remove its circular
+    # sweep during pivots so the published twist describes base_link.
+    lever_arm_x: 0.08
     lever_arm_y: 0.0
+    rotation_gate_enabled: true
     imu_topic: /imu/wt901/data_raw
     imu_max_age: 0.5
 
@@ -67,6 +65,8 @@ bagheera_measurement_normalizer:
   ros__parameters:
     odom_frame_id: odom
     base_frame_id: base_link
+    # MowgliNext wheel twist already describes axle-centred base_link.
+    axle_to_base_link_m: 0.0
     imu_frame_id: imu_link
     camera_frame_id: camera_optical_frame
     camera_width: 1920

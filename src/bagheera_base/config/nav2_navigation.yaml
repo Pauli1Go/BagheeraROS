@@ -118,9 +118,9 @@ local_costmap:
       width: 3
       height: 3
       resolution: 0.05
-      footprint: "[[0.26, 0.18], [0.26, -0.18], [-0.27, -0.18], [-0.27, 0.18]]"
-      # Absolute LiDAR-measured limits (front 25 cm, rear 26 cm, sides 17 cm)
-      # + 1 cm on each side. No inflation margin in the footprint; the
+      footprint: "[[0.34, 0.18], [0.34, -0.18], [-0.19, -0.18], [-0.19, 0.18]]"
+      # LiDAR-measured limits shifted to axle-centred base_link (front 33 cm,
+      # rear 18 cm, sides 17 cm) + 1 cm on each side. The
       # inflation gradient (0.50/3.0) keeps the planner centered between
       # walls; the controller's collision checks + replanning handle the
       # rest - no hard stops.
@@ -160,7 +160,7 @@ global_costmap:
       transform_tolerance: 0.30
       resolution: 0.05
       track_unknown_space: true
-      footprint: "[[0.26, 0.18], [0.26, -0.18], [-0.27, -0.18], [-0.27, 0.18]]"
+      footprint: "[[0.34, 0.18], [0.34, -0.18], [-0.19, -0.18], [-0.19, 0.18]]"
       footprint_padding: 0.0
       plugins: ["static_layer", "denoise_layer", "obstacle_layer", "inflation_layer"]
       static_layer:
