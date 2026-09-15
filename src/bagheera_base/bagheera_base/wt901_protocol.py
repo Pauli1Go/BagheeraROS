@@ -12,6 +12,17 @@ ACCEL_FULL_SCALE_G = 16.0
 GYRO_FULL_SCALE_DPS = 2000.0
 MOTION_REGISTER = 0x34
 MOTION_BLOCK_LENGTH = 18
+MAG_SENSOR_REGISTER = 0x72
+
+# WITMotion's official conversion table, in microtesla per register count.
+MAG_SCALE_UT_PER_COUNT = {
+    2: 0.15,
+    3: 0.013,
+    4: 0.058,
+    5: 0.098,
+    6: 1.0 / 120.0,
+    7: 0.020,
+}
 
 
 @dataclass(frozen=True)
@@ -20,6 +31,7 @@ class MotionSample:
 
     acceleration: tuple[float, float, float]
     angular_velocity: tuple[float, float, float]
+    magnetic_raw: tuple[int, int, int]
 
 
 def decode_motion_block(data: bytes | bytearray | list[int]) -> MotionSample:
@@ -35,7 +47,19 @@ def decode_motion_block(data: bytes | bytearray | list[int]) -> MotionSample:
     return MotionSample(
         acceleration=tuple(value * acceleration_scale for value in words[0:3]),
         angular_velocity=tuple(value * gyro_scale for value in words[3:6]),
+        magnetic_raw=tuple(words[6:9]),
     )
+
+
+def magnetic_raw_to_tesla(
+    raw: tuple[int, int, int], sensor_type: int
+) -> tuple[float, float, float]:
+    """Convert HX/HY/HZ registers using WITMotion's sensor-type table."""
+    try:
+        scale = MAG_SCALE_UT_PER_COUNT[sensor_type] * 1.0e-6
+    except KeyError as error:
+        raise ValueError(f"unsupported WT901 magnetometer type {sensor_type}") from error
+    return tuple(float(value) * scale for value in raw)
 
 
 class GyroBiasEstimator:

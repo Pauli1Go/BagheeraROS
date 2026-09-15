@@ -4,7 +4,11 @@ import math
 import struct
 import unittest
 
-from bagheera_base.wt901_protocol import GyroBiasEstimator, decode_motion_block
+from bagheera_base.wt901_protocol import (
+    GyroBiasEstimator,
+    decode_motion_block,
+    magnetic_raw_to_tesla,
+)
 
 
 class Wt901ProtocolTest(unittest.TestCase):
@@ -28,6 +32,17 @@ class Wt901ProtocolTest(unittest.TestCase):
         self.assertAlmostEqual(sample.angular_velocity[0], 0.0)
         self.assertAlmostEqual(sample.angular_velocity[1], math.radians(-1000.0))
         self.assertAlmostEqual(sample.angular_velocity[2], math.radians(1000.0))
+        self.assertEqual(sample.magnetic_raw, (1, 2, 3))
+
+    def test_type_6_magnetometer_scaling(self):
+        converted = magnetic_raw_to_tesla((120, -240, 60), 6)
+        self.assertAlmostEqual(converted[0], 1.0e-6)
+        self.assertAlmostEqual(converted[1], -2.0e-6)
+        self.assertAlmostEqual(converted[2], 0.5e-6)
+
+    def test_unknown_magnetometer_type_is_rejected(self):
+        with self.assertRaises(ValueError):
+            magnetic_raw_to_tesla((0, 0, 0), 99)
 
     def test_invalid_block_length_is_rejected(self):
         with self.assertRaises(ValueError):

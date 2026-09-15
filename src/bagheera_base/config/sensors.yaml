@@ -60,6 +60,24 @@ bagheera_wt901:
     gyro_calibration_samples: 200
     angular_velocity_variance: 0.0001
     linear_acceleration_variance: 0.04
+    # Live register 0x72 reported WITMotion magnetometer type 6.
+    mag_sensor_type: 6
+    magnetic_field_variance: 2.5e-11
+
+bagheera_compass:
+  ros__parameters:
+    calibration_file: /bagheera_ws/maps/compass_calibration.yaml
+    # imu_link is mounted with physical Y+ pointing along base_link X+.
+    sensor_to_base_yaw: -1.5707963267948966
+    output_frame: base_link
+    # Office steel, motors and current wiring can perturb the field. Invalid
+    # samples are withheld from the EKF instead of pulling odom sideways.
+    field_tolerance_fraction: 0.35
+    acceleration_tolerance_fraction: 0.30
+    heading_variance: 0.12
+    filter_gain: 0.12
+    max_heading_rate_rad_s: 1.5
+    imu_max_age: 0.25
 
 bagheera_measurement_normalizer:
   ros__parameters:

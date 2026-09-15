@@ -162,18 +162,19 @@ that the sensor Z axis points upward in the current mounting. The physical
 WT901 Y+ axis points toward the front of the robot. `robot.yaml` therefore
 defines an IMU yaw of -90 degrees so sensor Y+ maps to REP-103 `base_link` X+.
 
-`bagheera_wt901` reads acceleration and angular velocity at 50 Hz, converts
-them to m/s² and rad/s, and publishes `sensor_msgs/msg/Imu` on
-`/imu/wt901/data_raw`. During its first four seconds it averages the stationary
-gyro samples and then removes that bias. Keep the robot still during this
-period after every bring-up restart.
+`bagheera_wt901` reads acceleration, angular velocity and HX/HY/HZ at 50 Hz.
+It publishes SI-unit `sensor_msgs/msg/Imu` on `/imu/wt901/data_raw` and
+`sensor_msgs/msg/MagneticField` on `/imu/wt901/mag_raw`. Register `MAGSENSOR`
+reported type 6 on this unit, so the official WITMotion `raw/120 µT` conversion
+is used. During its first four seconds it averages stationary gyro samples and
+then removes that bias. Keep the robot still during this period after restart.
 
-The message marks orientation as unavailable. The local EKF intentionally
-fuses only `angular_velocity.z`; it does not consume the WT901 magnetometer
-orientation or linear acceleration. Consequently, a horizontal rotation of
-the module and its roughly 1 cm displacement from the robot centre do not
-affect the currently used measurement. The exact pose must still be entered in
-`config/robot.yaml` before using acceleration or full 3D orientation.
+The raw IMU message still marks orientation as unavailable. A separate compass
+node applies the persistent hard-/soft-iron calibration, mounting rotation,
+tilt compensation, field-strength gate and heading-rate gate. It publishes
+absolute yaw only while valid, so office steel or motor interference cannot
+silently override the gyro. The EKF consumes that orientation as `imu1` while
+retaining gyro Z rate as `imu0`.
 
 Check the live integration inside the running container:
 

@@ -65,6 +65,22 @@ ekf_filter_node:
     # unchanged while the physical robot and LiDAR rotated.
     imu0_linear_acceleration_rejection_threshold: 1.5
 
+    # Slowly filtered, calibrated absolute magnetic yaw. The compass node
+    # publishes nothing until a valid calibration exists and rejects disturbed
+    # office-field samples before they reach this filter.
+    imu1: /imu/compass
+    imu1_config: [false, false, false,
+                  false, false, true,
+                  false, false, false,
+                  false, false, false,
+                  false, false, false]
+    imu1_queue_size: 10
+    imu1_nodelay: false
+    imu1_differential: false
+    imu1_relative: false
+    imu1_remove_gravitational_acceleration: false
+    imu1_pose_rejection_threshold: 1.5
+
     use_control: false
     stamped_control: false
     control_timeout: 0.2

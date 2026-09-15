@@ -192,6 +192,8 @@ ros2 topic echo /hardware_bridge/status --once
 ros2 topic echo /hardware_bridge/emergency --once
 ros2 topic echo /wheel_odom --once
 ros2 topic echo /imu/wt901/data_raw --once
+ros2 topic echo /imu/wt901/mag_raw --once
+ros2 topic echo /imu/compass/valid --once
 ros2 topic echo /optical_flow/twist --once
 ros2 topic echo /odometry/filtered --once
 ros2 topic echo /camera/camera_info --once
@@ -201,11 +203,24 @@ ros2 topic hz /cmd_vel_teleop
 
 The EKF fuses encoder forward velocity, PMW3901 planar ground velocity and the
 WT901's bias-corrected Z angular velocity. Wheel-derived yaw is deliberately
-excluded so wheel slip cannot override the gyro. The WT901 node publishes SI
-units and explicitly marks orientation as unavailable; magnetometer yaw and
-gravity-contaminated acceleration are not fused. It keeps running with the
-available inputs if one source is absent. Sensor dimensions, frames and
-conservative non-zero covariances are populated for standard ROS 2 consumers.
+excluded so wheel slip cannot override the gyro. The WT901 also publishes its
+magnetometer on `/imu/wt901/mag_raw`. After a valid calibration exists, the
+compass node supplies slowly filtered absolute yaw on `/imu/compass`; disturbed
+field and acceleration samples are withheld from the EKF. Without that file it
+publishes only `valid=false`, so gyro-only operation continues unchanged.
+
+Create the persistent calibration while slowly completing at least one full
+rotation (two rotations over 60 seconds are preferable):
+
+```bash
+docker exec -it bagheera-mapping /bagheera_entrypoint.sh \
+  ros2 run bagheera_base bagheera_compass_calibrate
+```
+
+The result is stored in the maps volume as `compass_calibration.yaml`; the
+running compass node reloads it automatically. The calibration tool aligns the
+magnetic yaw to the current `/odometry/filtered` yaw when it finishes, avoiding
+an immediate heading jump.
 
 Robot dimensions and all sensor poses are centralized in
 `src/bagheera_base/config/robot.yaml`. The PMW height is measured; the current

@@ -189,6 +189,14 @@ def generate_launch_description():
         parameters=[sensor_config],
         condition=IfCondition(use_wt901),
     )
+    compass = Node(
+        package="bagheera_base",
+        executable="bagheera_compass",
+        name="bagheera_compass",
+        output="screen",
+        parameters=[sensor_config],
+        condition=IfCondition(use_wt901),
+    )
     camera = Node(
         package="camera_ros",
         executable="camera_node",
@@ -261,6 +269,7 @@ def generate_launch_description():
             lidar,
             optical_flow,
             wt901,
+            compass,
             camera,
             ekf,
             map_localization,

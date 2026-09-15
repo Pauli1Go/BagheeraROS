@@ -31,6 +31,8 @@ setup(
             "bagheera_measurement_normalizer = bagheera_base.measurement_normalizer:main",
             "bagheera_optical_flow = bagheera_base.optical_flow:main",
             "bagheera_wt901 = bagheera_base.wt901_node:main",
+            "bagheera_compass = bagheera_base.compass_node:main",
+            "bagheera_compass_calibrate = bagheera_base.compass_calibrate:main",
             "bagheera_goal_pose_bridge = bagheera_base.goal_pose_bridge:main",
         ],
     },
