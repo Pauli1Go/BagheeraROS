@@ -17,7 +17,7 @@ from std_msgs.msg import UInt16MultiArray
 from std_srvs.srv import Trigger
 from tf2_ros import TransformBroadcaster
 
-from .kinematics import DifferentialOdometry, twist_to_wheels
+from .kinematics import DifferentialOdometry, axle_to_base_link_twist, twist_to_wheels
 from .protocol import (
     ACK,
     ACK_NAMES,
@@ -71,6 +71,10 @@ class BagheeraBaseDriver(Node):
         self.declare_parameter("external_imu_frame", "imu_link")
         self.declare_parameter("onboard_imu_frame", "base_link")
         self.declare_parameter("publish_tf", True)
+        # base_link sits at the LiDAR position, this far ahead of the axle
+        # (the pivot center the wheel odometry describes). Used to convert
+        # the axle-frame twist into the base_link-frame twist.
+        self.declare_parameter("axle_to_base_link_m", 0.0)
 
         self._port = self.get_parameter("port").value
         self._baud_rate = self.get_parameter("baud_rate").value
@@ -83,6 +87,7 @@ class BagheeraBaseDriver(Node):
         self._external_imu_frame = self.get_parameter("external_imu_frame").value
         self._onboard_imu_frame = self.get_parameter("onboard_imu_frame").value
         self._publish_tf = self.get_parameter("publish_tf").value
+        self._axle_to_base_link_m = float(self.get_parameter("axle_to_base_link_m").value)
         if self._command_rate < 10.0:
             raise ValueError("command_rate must be at least 10 Hz for the STM32 watchdog")
         if not 0.0 < self._command_timeout < 1.0:
@@ -361,23 +366,36 @@ class BagheeraBaseDriver(Node):
         )
         stamp = self.get_clock().now().to_msg()
         orientation = yaw_quaternion(update.yaw)
+        # Convert the integrated axle pose to the base_link pose: the offset
+        # (axle_to_base_link_m, 0) is constant in the body frame.
+        base_x = update.x + self._axle_to_base_link_m * math.cos(update.yaw)
+        base_y = update.y + self._axle_to_base_link_m * math.sin(update.yaw)
         odom = Odometry()
         odom.header.stamp = stamp
         odom.header.frame_id = self._odom_frame
         odom.child_frame_id = self._base_frame
-        odom.pose.pose.position.x = update.x
-        odom.pose.pose.position.y = update.y
+        odom.pose.pose.position.x = base_x
+        odom.pose.pose.position.y = base_y
         odom.pose.pose.orientation = orientation
         odom.twist.twist.linear.x = update.linear_velocity
         odom.twist.twist.angular.z = update.angular_velocity
+        # The pose/tf above describe the axle (pivot center), but the odom
+        # frame convention and the EKF expect the twist at child_frame_id
+        # (= base_link, 8 cm ahead at the LiDAR). Convert so all velocity
+        # sources describe the same point.
+        vx_base, vy_base = axle_to_base_link_twist(
+            update.linear_velocity, update.angular_velocity, self._axle_to_base_link_m
+        )
+        odom.twist.twist.linear.x = vx_base
+        odom.twist.twist.linear.y = vy_base
         self._odom_pub.publish(odom)
         if self._publish_tf:
             transform = TransformStamped()
             transform.header.stamp = stamp
             transform.header.frame_id = self._odom_frame
             transform.child_frame_id = self._base_frame
-            transform.transform.translation.x = update.x
-            transform.transform.translation.y = update.y
+            transform.transform.translation.x = base_x
+            transform.transform.translation.y = base_y
             transform.transform.rotation = orientation
             self._tf.sendTransform(transform)
 

@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import math
+from collections import deque
 
 import rclpy
 from geometry_msgs.msg import TwistWithCovarianceStamped, Vector3Stamped
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
+from sensor_msgs.msg import Imu
 
 from .pmw3901 import Pmw3901, transform_counts
 
@@ -27,6 +30,16 @@ class OpticalFlowNode(Node):
         self.declare_parameter("invert_x", False)
         self.declare_parameter("invert_y", False)
         self.declare_parameter("minimum_quality", 0)
+        self.declare_parameter("lever_arm_x", 0.0)
+        self.declare_parameter("lever_arm_y", 0.0)
+        self.declare_parameter("imu_topic", "/imu/wt901/data_raw")
+        self.declare_parameter("imu_max_age", 0.5)
+        # The PMW3901 reports phantom translation while the robot pivots (the
+        # ground image swirls, its average is not zero in practice). Such flow
+        # readings get published with an inflated covariance so the EKF's
+        # Mahalanobis gate drops them instead of integrating the phantom.
+        self.declare_parameter("rotation_gate_rad_s", 0.25)
+        self.declare_parameter("rotation_variance", 1000000.0)
 
         self._frame_id = str(self.get_parameter("frame_id").value)
         self._meters_per_count = float(self.get_parameter("mount_height_m").value) * float(
@@ -36,6 +49,27 @@ class OpticalFlowNode(Node):
         self._invert_x = bool(self.get_parameter("invert_x").value)
         self._invert_y = bool(self.get_parameter("invert_y").value)
         self._minimum_quality = int(self.get_parameter("minimum_quality").value)
+        # Lever arm of the sensor relative to the base_link rotation center.
+        # While rotating, the sensor sweeps with wz x r, which would otherwise
+        # be fused as a phantom base velocity (vy) and smear the odometry.
+        self._lever_x = float(self.get_parameter("lever_arm_x").value)
+        self._lever_y = float(self.get_parameter("lever_arm_y").value)
+        self._rotation_gate = float(self.get_parameter("rotation_gate_rad_s").value)
+        self._rotation_variance = float(
+            self.get_parameter("rotation_variance").value
+        )
+        imu_max_age = float(self.get_parameter("imu_max_age").value)
+        imu_topic = str(self.get_parameter("imu_topic").value)
+        # Recent gyro samples for integrating wz over the flow window.
+        self._wz_history: deque[tuple[int, float]] = deque(maxlen=256)
+        self._imu_max_age_s = imu_max_age
+        self._imu_max_age_ns = int(imu_max_age * 1_000_000_000)
+        sensor_qos = QoSProfile(depth=20)
+        sensor_qos.reliability = ReliabilityPolicy.BEST_EFFORT
+        sensor_qos.history = HistoryPolicy.KEEP_LAST
+        self._imu_subscription = self.create_subscription(
+            Imu, imu_topic, self._on_imu, sensor_qos
+        )
 
         self._sensor = Pmw3901(
             bus=int(self.get_parameter("spi_bus").value),
@@ -64,6 +98,19 @@ class OpticalFlowNode(Node):
     def destroy_node(self):
         self._sensor.close()
         return super().destroy_node()
+
+    def _on_imu(self, message: Imu) -> None:
+        wz = message.angular_velocity.z
+        if math.isfinite(wz):
+            self._wz_history.append((self.get_clock().now().nanoseconds, wz))
+
+    def _mean_wz_between(self, start_ns: int, end_ns: int) -> float | None:
+        """Average gyro wz over the flow integration window."""
+        samples = [wz for stamp, wz in self._wz_history
+                   if start_ns <= stamp <= end_ns]
+        if not samples:
+            return None
+        return sum(samples) / len(samples)
 
     def _poll(self) -> None:
         try:
@@ -97,9 +144,39 @@ class OpticalFlowNode(Node):
         twist = TwistWithCovarianceStamped()
         twist.header.stamp = raw.header.stamp
         twist.header.frame_id = self._frame_id
-        twist.twist.twist.linear.x = robot_x * self._meters_per_count / elapsed
-        twist.twist.twist.linear.y = robot_y * self._meters_per_count / elapsed
+        vx = robot_x * self._meters_per_count / elapsed
+        vy = robot_y * self._meters_per_count / elapsed
+
+        # Remove the rotation-induced sweep velocity so the twist describes
+        # the base_link motion, not the sensor point motion.
+        wz = None
+        if self._lever_x != 0.0 or self._lever_y != 0.0:
+            wz = self._mean_wz_between(now_ns - int(elapsed * 1_000_000_000), now_ns)
+            if wz is None and self._wz_history and \
+                    now_ns - self._wz_history[-1][0] <= self._imu_max_age_ns:
+                wz = self._wz_history[-1][1]
+            if wz is None:
+                self.get_logger().warning(
+                    "No gyro data within %.1f s; publishing uncorrected flow"
+                    % self._imu_max_age_s
+                )
+            else:
+                # v_flow = v_base + wz x lever_arm  =>  v_base = v_flow - wz x r
+                vx += wz * self._lever_y
+                vy -= wz * self._lever_x
+
         variance = max(0.0025, 0.25 / max(1, quality))
+        # Gate out flow during pivots: the swirl artifact would otherwise be
+        # fused as phantom translation (measured ~0.2 m per 180 deg turn).
+        if wz is None:
+            wz = self._mean_wz_between(
+                now_ns - int(0.3 * 1_000_000_000), now_ns
+            )
+        if wz is not None and abs(wz) > self._rotation_gate:
+            variance = self._rotation_variance
+
+        twist.twist.twist.linear.x = vx
+        twist.twist.twist.linear.y = vy
         twist.twist.covariance[0] = variance
         twist.twist.covariance[7] = variance
         twist.twist.covariance[14] = 1_000_000.0

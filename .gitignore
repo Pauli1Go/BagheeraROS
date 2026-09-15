@@ -5,3 +5,4 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .DS_Store
+src/bagheera_base/config/calib_undistorted_preview.png

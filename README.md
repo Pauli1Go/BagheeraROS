@@ -83,8 +83,8 @@ The launch starts:
 - WT901 I2C IMU driver (`/imu/wt901/data_raw`)
 - front camera driver (`/camera/image_raw`, `/camera/camera_info`)
 - static map server (`/map`) and AMCL localization (`map -> odom`)
-- Nav2 planner, regulated-pure-pursuit controller and velocity smoother
-- LiDAR collision monitor after `twist_mux`, protecting autonomous and manual motion
+- Nav2 planner, rotation shim, regulated-pure-pursuit controller and velocity smoother
+- bounded Clear/BackUp recovery without Spin; separate LiDAR hardstop disabled
 - Foxglove `/goal_pose` bridge to Nav2's `NavigateToPose` action
 - Foxglove bridge on `ws://bagheera.local:8765`
 
@@ -106,19 +106,31 @@ Bagheera goal bridge forwards it to Nav2's `/navigate_to_pose` action.
 The first navigation tuning is capped at 0.16 m/s, matching controller teleop.
 Both global and local costmaps consume `/scan`; mapped and live obstacles are
 inflated around the physical chassis footprint. The global costmap removes
-saved-map obstacle artifacts smaller than four connected 5 cm cells before
+saved-map obstacle artifacts smaller than six connected 5 cm cells before
 adding current LiDAR obstacles. The final velocity chain is:
 
 ```text
-Nav2/controller -> velocity_smoother -> twist_mux --+--> collision_monitor -> STM32
-controller teleop ------------------------------->--+
+Nav2/RPP or BackUp -> velocity_smoother -> twist_mux -> STM32
+controller teleop ----------------------> twist_mux -> STM32
 ```
 
-The collision monitor uses raw `/scan`, stops on three or more returns inside
-the configured chassis safety envelope, and stops fail-safe if LiDAR data is
-older than 0.5 seconds. Its state is published on `/collision_monitor_state`.
-The stop envelope and Nav2 parameters are in `collision_monitor.yaml` and
-`nav2_navigation.yaml`.
+The collision monitor is not launched. Teleop bypasses all Nav2 filtering;
+firmware stop conditions and watchdog remain unchanged. Nav2 retains live
+obstacle layers, RPP collision detection and collision-checked BackUp.
+The dormant monitor box in `collision_monitor.yaml` is x=[-0.17, 0.55],
+y=[-0.23, 0.23], min_points=6. Both costmaps use 0.02 m footprint padding
+and 0.25 m inflation; the physical footprint is unchanged.
+
+The installed `behavior_trees/navigate_no_spin.xml` is selected through
+`default_nav_to_pose_bt_xml` using the package share path. Four recovery
+attempts alternate clear-local/global + replan and BackUp + replan.
+BackUp travels 0.20 m at 0.08 m/s with a 6 s timeout. If blocked, it stops,
+waits 1 s, clears both costmaps and replans. After the bounded retries the
+goal aborts. Normal RPP path/goal alignment can still turn the robot.
+
+Recovery tuning does not fix the separately observed ~4.2 m AMCL error.
+Before physical goal tests, verify the initial pose and scan/map alignment;
+do not automatically restore an old pose after the robot has moved.
 
 For a new mapping session, stop the normal Compose service, start the base
 without static-map localization, and then start SLAM Toolbox:

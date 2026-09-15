@@ -63,9 +63,6 @@ def generate_launch_description():
     nav2_localization_config = str(
         package_share / "config" / "nav2_localization.yaml"
     )
-    collision_monitor_config = str(
-        package_share / "config" / "collision_monitor.yaml"
-    )
 
     serial_port = LaunchConfiguration("serial_port")
     use_lidar = LaunchConfiguration("use_lidar")
@@ -135,7 +132,7 @@ def generate_launch_description():
         name="twist_mux",
         output="screen",
         parameters=[str(mowgli_share / "config" / "twist_mux.yaml")],
-        remappings=[("cmd_vel_out", "/cmd_vel_requested")],
+        remappings=[("cmd_vel_out", "/cmd_vel")],
     )
 
     controller = Node(
@@ -227,26 +224,6 @@ def generate_launch_description():
         }.items(),
         condition=IfCondition(use_map_localization),
     )
-    collision_monitor = Node(
-        package="nav2_collision_monitor",
-        executable="collision_monitor",
-        name="collision_monitor",
-        output="screen",
-        parameters=[collision_monitor_config],
-    )
-    collision_lifecycle_manager = Node(
-        package="nav2_lifecycle_manager",
-        executable="lifecycle_manager",
-        name="lifecycle_manager_collision_monitor",
-        output="screen",
-        parameters=[
-            {
-                "autostart": True,
-                "node_names": ["collision_monitor"],
-                "bond_timeout": 4.0,
-            }
-        ],
-    )
     navigation = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             str(package_share / "launch" / "navigation.launch.py")
@@ -286,8 +263,6 @@ def generate_launch_description():
             camera,
             ekf,
             map_localization,
-            collision_monitor,
-            collision_lifecycle_manager,
             navigation,
             foxglove,
         ]

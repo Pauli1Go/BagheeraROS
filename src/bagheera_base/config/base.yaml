@@ -11,6 +11,7 @@ bagheera_base_driver:
     external_imu_frame: imu_link
     onboard_imu_frame: base_link
     publish_tf: true
+    axle_to_base_link_m: 0.08
 
 bagheera_controller:
   ros__parameters:

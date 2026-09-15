@@ -38,7 +38,12 @@ def generate_launch_description():
         package="nav2_bt_navigator",
         executable="bt_navigator",
         name="bt_navigator",
-        **common,
+        output="screen",
+        parameters=[params, {
+            "default_nav_to_pose_bt_xml": str(
+                package_share / "behavior_trees" / "navigate_no_spin.xml"
+            ),
+        }],
     )
     velocity_smoother = Node(
         package="nav2_velocity_smoother",
@@ -46,6 +51,10 @@ def generate_launch_description():
         name="velocity_smoother",
         remappings=[
             ("cmd_vel", "/cmd_vel_nav"),
+            # Direct to the mux navigation lane; the collision monitor was
+            # removed: its stop polygon deadlocked every turn near walls.
+            # Collision avoidance lives in the controller (RPP isCollisionImminent,
+            # shim rotated-footprint check) + BT replanning.
             ("cmd_vel_smoothed", "/cmd_vel_monitored"),
         ],
         **common,

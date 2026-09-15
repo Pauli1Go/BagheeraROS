@@ -82,3 +82,18 @@ class DifferentialOdometry:
         linear = (measured_left_m_s + measured_right_m_s) / 2.0
         angular = (measured_right_m_s - measured_left_m_s) / self.wheel_track_m
         return OdometryUpdate(self.x, self.y, self.yaw, linear, angular)
+
+
+def axle_to_base_link_twist(
+    linear_m_s: float, angular_rad_s: float, axle_to_base_link_m: float
+) -> tuple[float, float]:
+    """Convert axle-frame twist to the twist of a point ahead of the axle.
+
+    The wheel odometry describes the axle midpoint (the pivot center), but
+    base_link sits at the LiDAR position, axle_to_base_link_m ahead of the
+    axle. A rotating rigid body moves that point laterally with wz x r, so
+    the point velocity gains a y component while x stays the same.
+    """
+    if not all(math.isfinite(v) for v in (linear_m_s, angular_rad_s, axle_to_base_link_m)):
+        return 0.0, 0.0
+    return linear_m_s, angular_rad_s * axle_to_base_link_m

@@ -34,7 +34,7 @@ bagheera_optical_flow:
     spi_chip_select: 0
     spi_speed_hz: 400000
     frame_id: base_link
-    publish_rate: 100.0
+    publish_rate: 50.0
     mount_height_m: 0.09
     # Calibrated at 90 mm height: 2755 X-counts over 0.510 m.
     radians_per_count: 0.002057
@@ -42,6 +42,15 @@ bagheera_optical_flow:
     invert_x: false
     invert_y: false
     minimum_quality: 0
+    # base_link sits at the LiDAR position, and the flow sensor is mounted at
+    # base_link (both 8 cm ahead of the axle, which is the pivot center).
+    # So the flow already measures the true base_link velocity; pivots sweep
+    # the sensor point and that sweep is real base_link motion. No lever-arm
+    # correction (parameters kept for future use, must stay 0).
+    lever_arm_x: 0.0
+    lever_arm_y: 0.0
+    imu_topic: /imu/wt901/data_raw
+    imu_max_age: 0.5
 
 bagheera_wt901:
   ros__parameters:

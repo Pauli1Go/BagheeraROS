@@ -21,7 +21,6 @@ bt_navigator:
       - compute_path
       - follow_path
       - nav_to_pose
-      - spin
       - wait
 
 controller_server:
@@ -40,21 +39,46 @@ controller_server:
     controller_plugins: ["FollowPath"]
     progress_checker:
       plugin: nav2_controller::SimpleProgressChecker
-      required_movement_radius: 0.10
-      movement_time_allowance: 12.0
+      required_movement_radius: 0.08
+      # In-place rotations are legitimate progress: a 180 deg turn at
+      # 0.5 rad/s takes ~7 s. 8 s fired BackUp on open floor mid-rotation.
+      movement_time_allowance: 20.0
     goal_checker:
       plugin: nav2_controller::SimpleGoalChecker
       xy_goal_tolerance: 0.10
       yaw_goal_tolerance: 0.15
       stateful: true
     FollowPath:
-      plugin: nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController
-      desired_linear_vel: 0.16
-      lookahead_dist: 0.30
-      min_lookahead_dist: 0.20
-      max_lookahead_dist: 0.45
-      lookahead_time: 1.5
+      # RotationShim is normal path alignment, not a Spin recovery. It keeps
+      # deliberate in-place turns at a useful speed, then delegates curves to
+      # RPP. Both plugins use this same parameter namespace.
+      plugin: nav2_rotation_shim_controller::RotationShimController
+      primary_controller: nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController
+      angular_dist_threshold: 0.20
+      angular_disengage_threshold: 0.10
+      forward_sampling_distance: 0.30
       rotate_to_heading_angular_vel: 0.50
+      # Open-loop rotation: the closed-loop band tracked the (laggy) measured
+      # yaw rate into a ~0.2 rad/s equilibrium, making small turns take 10 s.
+      # Open-loop ramps at max_angular_accel and holds rotate_to_heading_angular_vel.
+      closed_loop: false
+      # RPP's rotateToHeading clamps around the measured yaw rate with
+      # +-max_angular_accel*dt (dt = 1/15 s -> +-0.13). At 0.13 rad/s the wheel
+      # speed difference is in the motor deadband, so measured stays ~0 and the
+      # command never ramped up. 8.0 lets the command reach the 0.5 rad/s cap
+      # immediately; the velocity smoother still ramps at 2.0 rad/s^2.
+      max_angular_accel: 8.0
+      simulate_ahead_time: 1.0
+      rotate_to_goal_heading: true
+      # Rotate in place only when the goal/path first arrives. With false the
+      # shim re-checked the 0.30 m sampled point every cycle, and each 1 Hz
+      # replan near doors flipped its side: R-L-R-L in-place paddling for
+      # 68% of the run time (measured 2026-09-15). RPP handles curves.
+      rotate_to_heading_once: true
+      use_path_orientations: false
+
+      desired_linear_vel: 0.16
+      lookahead_time: 1.5
       transform_tolerance: 0.30
       use_velocity_scaled_lookahead_dist: true
       min_approach_linear_velocity: 0.05
@@ -65,15 +89,21 @@ controller_server:
       regulated_linear_scaling_min_radius: 0.60
       regulated_linear_scaling_min_speed: 0.05
       use_cost_regulated_linear_velocity_scaling: true
-      cost_scaling_dist: 0.35
+      # Regulate speed only when an obstacle is really close (doors, walls):
+      # 0.35 m slowed the robot to the 0.05 m/s crawl inside door frames.
+      cost_scaling_dist: 0.20
       cost_scaling_gain: 1.0
       inflation_cost_scaling_factor: 5.0
       use_rotate_to_heading: true
       allow_reversing: false
       rotate_to_heading_min_angle: 0.50
-      max_angular_accel: 2.0
       max_robot_pose_search_dist: 5.0
       use_interpolation: true
+
+      # Calmer arc steering on straights and in curves.
+      lookahead_dist: 0.40
+      min_lookahead_dist: 0.25
+      max_lookahead_dist: 0.55
 
 local_costmap:
   local_costmap:
@@ -88,8 +118,13 @@ local_costmap:
       width: 3
       height: 3
       resolution: 0.05
-      footprint: "[[0.48, 0.20], [0.48, -0.20], [-0.12, -0.20], [-0.12, 0.20]]"
-      footprint_padding: 0.05
+      footprint: "[[0.26, 0.18], [0.26, -0.18], [-0.27, -0.18], [-0.27, 0.18]]"
+      # Absolute LiDAR-measured limits (front 25 cm, rear 26 cm, sides 17 cm)
+      # + 1 cm on each side. No inflation margin in the footprint; the
+      # inflation gradient (0.50/3.0) keeps the planner centered between
+      # walls; the controller's collision checks + replanning handle the
+      # rest - no hard stops.
+      footprint_padding: 0.0
       plugins: ["obstacle_layer", "inflation_layer"]
       obstacle_layer:
         plugin: nav2_costmap_2d::ObstacleLayer
@@ -104,12 +139,12 @@ local_costmap:
           obstacle_max_range: 2.5
           raytrace_min_range: 0.30
           raytrace_max_range: 4.0
-          observation_persistence: 0.3
+          observation_persistence: 0.0
           expected_update_rate: 0.20
           inf_is_valid: true
       inflation_layer:
         plugin: nav2_costmap_2d::InflationLayer
-        inflation_radius: 0.30
+        inflation_radius: 0.25
         cost_scaling_factor: 5.0
       always_send_full_costmap: true
       service_introspection_mode: disabled
@@ -125,8 +160,8 @@ global_costmap:
       transform_tolerance: 0.30
       resolution: 0.05
       track_unknown_space: true
-      footprint: "[[0.48, 0.20], [0.48, -0.20], [-0.12, -0.20], [-0.12, 0.20]]"
-      footprint_padding: 0.05
+      footprint: "[[0.26, 0.18], [0.26, -0.18], [-0.27, -0.18], [-0.27, 0.18]]"
+      footprint_padding: 0.0
       plugins: ["static_layer", "denoise_layer", "obstacle_layer", "inflation_layer"]
       static_layer:
         plugin: nav2_costmap_2d::StaticLayer
@@ -136,7 +171,7 @@ global_costmap:
       denoise_layer:
         plugin: nav2_costmap_2d::DenoiseLayer
         enabled: true
-        minimal_group_size: 4
+        minimal_group_size: 6
         group_connectivity_type: 8
       obstacle_layer:
         plugin: nav2_costmap_2d::ObstacleLayer
@@ -157,8 +192,11 @@ global_costmap:
           inf_is_valid: true
       inflation_layer:
         plugin: nav2_costmap_2d::InflationLayer
-        inflation_radius: 0.30
-        cost_scaling_factor: 5.0
+        # 0.50 circumscribed radius with a gentle 3.0 falloff pushes NavFn
+        # paths toward the corridor center; a steep gradient (8) made paths
+        # hug the walls and cut corners too tightly.
+        inflation_radius: 0.50
+        cost_scaling_factor: 3.0
       always_send_full_costmap: true
       service_introspection_mode: disabled
 
@@ -184,9 +222,7 @@ behavior_server:
     local_footprint_topic: local_costmap/published_footprint
     global_footprint_topic: global_costmap/published_footprint
     cycle_frequency: 10.0
-    behavior_plugins: ["spin", "backup", "wait"]
-    spin:
-      plugin: nav2_behaviors::Spin
+    behavior_plugins: ["backup", "wait"]
     backup:
       plugin: nav2_behaviors::BackUp
       acceleration_limit: 0.20

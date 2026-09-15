@@ -9,40 +9,59 @@ amcl:
     transform_tolerance: 0.5
 
     robot_model_type: nav2_amcl::DifferentialMotionModel
-    alpha1: 0.2
-    alpha2: 0.2
-    alpha3: 0.2
-    alpha4: 0.2
-    alpha5: 0.2
+    # The EKF already fuses wheel odometry, optical flow and the gyro, so the
+    # motion model must not smear the particle cloud on top of that.
+    alpha1: 0.02
+    alpha2: 0.02
+    alpha3: 0.02
+    alpha4: 0.02
+    alpha5: 0.01
 
     laser_model_type: likelihood_field
     laser_min_range: 0.30
-    laser_max_range: 15.5
-    laser_likelihood_max_dist: 2.0
-    max_beams: 90
-    sigma_hit: 0.2
-    z_hit: 0.5
-    z_rand: 0.5
-    z_max: 0.05
-    z_short: 0.05
+    # Long beams cross glass or unmapped office areas and can pull the filter
+    # into another room. Six metres still covers the useful local geometry.
+    laser_max_range: 6.0
+    # A 2 m wide likelihood field made nearly every pose look plausible. That
+    # is what let the pose jump between rooms while driving.
+    laser_likelihood_max_dist: 0.5
+    max_beams: 180
+    sigma_hit: 0.15
+    # Chairs, people and movable office objects are deliberately treated as a
+    # substantial random component instead of static-map evidence.
+    z_hit: 0.65
+    z_rand: 0.35
+    z_max: 0.0
+    z_short: 0.0
     lambda_short: 0.1
-    do_beamskip: false
+    do_beamskip: true
     beam_skip_distance: 0.5
     beam_skip_threshold: 0.3
     beam_skip_error_threshold: 0.9
 
-    min_particles: 500
-    max_particles: 2000
+    min_particles: 1000
+    max_particles: 3000
     pf_err: 0.05
     pf_z: 0.99
-    resample_interval: 1
-    recovery_alpha_fast: 0.0
-    recovery_alpha_slow: 0.0
+    resample_interval: 2
+    recovery_alpha_fast: 0.1
+    recovery_alpha_slow: 0.001
 
-    update_min_d: 0.05
-    update_min_a: 0.05
+    # Update on meaningful motion instead of on every sensor tick.
+    update_min_d: 0.10
+    update_min_a: 0.10
     save_pose_rate: 0.5
-    set_initial_pose: false
+    # Dock position measured with the robot parked in the dock. Seeding the
+    # filter at startup lets the map->odom transform exist before Nav2's
+    # lifecycle bringup; otherwise the planner costmap times out waiting for
+    # the base_link->map transform and the navigation stack never activates.
+    # Pose taken from /amcl_pose after Paul's manual 2D pose estimate at the
+    # dock on 2026-09-14.
+    set_initial_pose: true
+    initial_pose.x: -2.9651
+    initial_pose.y: 3.2624
+    initial_pose.z: 0.0
+    initial_pose.yaw: 2.4749
     always_reset_initial_pose: false
     first_map_only: false
     service_introspection_mode: disabled

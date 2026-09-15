@@ -222,20 +222,25 @@ accept the robot's slow manual movements.
 
 ## Nav2 point-to-point navigation
 
-`manual_control.launch.py` starts the Nav2 planner, regulated-pure-pursuit
-controller, velocity smoother and Foxglove goal bridge by default. Foxglove's
+`manual_control.launch.py` starts the Nav2 planner, rotation shim,
+regulated-pure-pursuit controller, velocity smoother and
+Foxglove goal bridge by default. Foxglove's
 `2D pose` click publisher sends a `geometry_msgs/msg/PoseStamped` to
 `/goal_pose`; the bridge turns that into a `NavigateToPose` action goal.
 
-The YDLidar feeds both costmap obstacle layers. A separate collision monitor is
-placed after `twist_mux`, so it gates Nav2, controller, tuning and future
-docking velocity sources before `/cmd_vel` reaches the hardware bridge. The
-initial policy is a static stop envelope only: it never commands an avoidance
-motion itself. Stale scan data also produces zero velocity.
+The YDLidar feeds both costmap obstacle layers. The separate collision monitor
+is disabled in bringup. Navigation runs through the velocity smoother and
+twist_mux; teleop enters twist_mux directly. RPP and BackUp retain their Nav2
+collision checks. The installed navigate_no_spin.xml provides four bounded
+clear/replan and collision-checked 0.20 m BackUp/replan recovery attempts.
+BackUp is limited to 0.08 m/s and 6 seconds; if blocked it falls back to
+wait/clear/replan. No Spin plugin is loaded.
 
-The global costmap's denoise layer removes saved-map groups smaller than four
+The global costmap's denoise layer removes saved-map groups smaller than six
 connected cells before the live obstacle layer is applied. This suppresses
 small mapping artifacts without hiding current LiDAR returns.
+The observed ~4.2 m AMCL localization error remains a separate issue. Verify
+plausible localization before any physical navigation test.
 
 ## Drive calibration
 
