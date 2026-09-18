@@ -33,7 +33,13 @@ setup(
             "bagheera_wt901 = bagheera_base.wt901_node:main",
             "bagheera_compass = bagheera_base.compass_node:main",
             "bagheera_compass_calibrate = bagheera_base.compass_calibrate:main",
+            "bagheera_compass_test = bagheera_base.compass_test:main",
+            "bagheera_gyro_turn_test = bagheera_base.gyro_turn_test:main",
+            "bagheera_rotation_shift_test = bagheera_base.rotation_shift_test:main",
             "bagheera_goal_pose_bridge = bagheera_base.goal_pose_bridge:main",
+            "bagheera_autonomy_dock_guard = bagheera_base.autonomy_dock_guard:main",
+            "bagheera_localization_exclusion_guard = bagheera_base.localization_exclusion_guard:main",
+            "bagheera_keepout_mask_relay = bagheera_base.keepout_mask_relay:main",
         ],
     },
 )

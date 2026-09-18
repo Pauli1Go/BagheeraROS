@@ -1,12 +1,12 @@
 bagheera:
   ros__parameters:
     # REP-103 model: x forward, y left, z up; dimensions are metres.
-    # Physical outline was measured from the sensor cluster, which is 0.08 m
-    # ahead of the drive axle: 0.33 m front, 0.18 m rear from base_link.
+    # Physical outline was measured from the sensor cluster, which is 0.1834 m
+    # ahead of the drive axle: 0.4334 m front, 0.0766 m rear from base_link.
     chassis_length: 0.51
     chassis_width: 0.34
     chassis_height: 0.19
-    chassis_center_x: 0.075
+    chassis_center_x: 0.1784
     chassis_mass_kg: 8.76
     wheel_radius: 0.04475
     wheel_width: 0.04
@@ -16,24 +16,23 @@ bagheera:
     caster_radius: 0.03
     caster_track: 0.36
 
-    # WT901, PMW3901 and LiDAR share an x/y origin 8 cm ahead of the axle.
-    imu_x: 0.08
-    imu_y: 0.0
+    # WT901, PMW3901 and LiDAR share the measured sensor-cluster origin.
+    imu_x: 0.1834103944436625
+    imu_y: 0.011005001769871877
     imu_z: 0.095
     imu_roll: 0.0
     imu_pitch: 0.0
     # WT901 Y+ points forward. A -90 degree child-frame yaw maps its Y axis to
     # REP-103 base_link X+ while keeping Z+ upward.
     imu_yaw: -1.5707963267948966
-    lidar_x: 0.08
-    lidar_y: 0.0
+    lidar_x: 0.1834103944436625
+    lidar_y: 0.011005001769871877
     lidar_z: 0.30
-    # A static target centred directly in front was measured at +85.5 deg in
-    # the raw scan. Rotate lidar_link by -85.5 deg so ROS angle 0 points along
-    # REP-103 base_link X+.
-    lidar_yaw: -1.4922565104551517
-    optical_flow_x: 0.08
-    optical_flow_y: 0.0
+    # A full mapped 360 degree turn measured a +1.43 degree correction to the
+    # original coarse -85.5 degree estimate. Effective mounting yaw: -84.1 deg.
+    lidar_yaw: -1.4678219024272308
+    optical_flow_x: 0.1834103944436625
+    optical_flow_y: 0.011005001769871877
     # Sensor is measured 90 mm above the floor; base_link is one wheel radius
     # above it, hence 0.09000 - 0.04475 = 0.04525 m.
     optical_flow_z: 0.04525

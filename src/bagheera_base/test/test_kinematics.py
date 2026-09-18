@@ -52,10 +52,13 @@ class KinematicsTest(unittest.TestCase):
         self.assertAlmostEqual(turn.yaw, 1.0)
         self.assertAlmostEqual(turn.angular_velocity, 1.0)
 
-    def test_controller_mapping_matches_existing_axes(self):
+    def test_controller_mapping_separates_driving_and_turning(self):
         self.assertEqual(apply_deadzone(0.04, 0.05), 0.0)
         linear, angular = axes_to_twist(-1.0, 1.0, 0.05, 0.25, 1.0)
         self.assertEqual(linear, 0.25)
+        self.assertEqual(angular, 0.0)
+        linear, angular = axes_to_twist(0.0, 1.0, 0.05, 0.25, 1.0)
+        self.assertEqual(linear, 0.0)
         self.assertEqual(angular, -1.0)
 
 

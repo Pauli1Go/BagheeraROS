@@ -4,7 +4,7 @@
   <xacro:arg name="chassis_length" default="0.51"/>
   <xacro:arg name="chassis_width" default="0.34"/>
   <xacro:arg name="chassis_height" default="0.19"/>
-  <xacro:arg name="chassis_center_x" default="0.075"/>
+  <xacro:arg name="chassis_center_x" default="0.1784"/>
   <xacro:arg name="chassis_mass_kg" default="8.76"/>
   <xacro:arg name="wheel_radius" default="0.04475"/>
   <xacro:arg name="wheel_width" default="0.04"/>
@@ -13,18 +13,18 @@
   <xacro:arg name="caster_radius" default="0.03"/>
   <xacro:arg name="caster_track" default="0.36"/>
 
-  <xacro:arg name="imu_x" default="0.08"/>
-  <xacro:arg name="imu_y" default="0.0"/>
+  <xacro:arg name="imu_x" default="0.1834103944436625"/>
+  <xacro:arg name="imu_y" default="0.011005001769871877"/>
   <xacro:arg name="imu_z" default="0.095"/>
   <xacro:arg name="imu_roll" default="0.0"/>
   <xacro:arg name="imu_pitch" default="0.0"/>
   <xacro:arg name="imu_yaw" default="0.0"/>
-  <xacro:arg name="lidar_x" default="0.08"/>
-  <xacro:arg name="lidar_y" default="0.0"/>
+  <xacro:arg name="lidar_x" default="0.1834103944436625"/>
+  <xacro:arg name="lidar_y" default="0.011005001769871877"/>
   <xacro:arg name="lidar_z" default="0.30"/>
-  <xacro:arg name="lidar_yaw" default="0.0"/>
-  <xacro:arg name="optical_flow_x" default="0.08"/>
-  <xacro:arg name="optical_flow_y" default="0.0"/>
+  <xacro:arg name="lidar_yaw" default="-1.4678219024272308"/>
+  <xacro:arg name="optical_flow_x" default="0.1834103944436625"/>
+  <xacro:arg name="optical_flow_y" default="0.011005001769871877"/>
   <xacro:arg name="optical_flow_z" default="0.04525"/>
   <xacro:arg name="camera_x" default="0.33"/>
   <xacro:arg name="camera_y" default="0.0"/>

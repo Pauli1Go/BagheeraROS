@@ -32,12 +32,14 @@ RUN git clone https://github.com/YDLIDAR/YDLidar-SDK.git /opt/ydlidar-sdk-src \
 
 WORKDIR /bagheera_ws
 COPY docker/ydlidar-reliable-scan.patch /tmp/ydlidar-reliable-scan.patch
+COPY docker/camera-latest-frame.patch /tmp/camera-latest-frame.patch
 RUN git clone --branch humble https://github.com/YDLIDAR/ydlidar_ros2_driver.git \
       src/ydlidar_ros2_driver \
  && git -C src/ydlidar_ros2_driver checkout "${YDLIDAR_ROS2_REF}" \
  && git -C src/ydlidar_ros2_driver apply /tmp/ydlidar-reliable-scan.patch \
  && git clone https://github.com/christianrauch/camera_ros.git src/camera_ros \
- && git -C src/camera_ros checkout "${CAMERA_ROS_REF}"
+ && git -C src/camera_ros checkout "${CAMERA_ROS_REF}" \
+ && git -C src/camera_ros apply /tmp/camera-latest-frame.patch
 
 RUN . /opt/ros/kilted/setup.sh \
  && . /ros2_ws/install/setup.sh \

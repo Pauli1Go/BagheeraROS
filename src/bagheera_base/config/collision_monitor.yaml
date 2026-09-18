@@ -31,9 +31,9 @@ collision_monitor:
     LidarStop:
       type: polygon
       action_type: stop
-      # Axle-centred chassis is x=[-0.18, 0.33], y=[-0.17, 0.17].
+      # Axle-centred chassis is x=[-0.0766, 0.4334], y=[-0.17, 0.17].
       # These dormant limits include the requested 1 cm safety margin.
-      points: "[[0.34, 0.18], [0.34, -0.18], [-0.19, -0.18], [-0.19, 0.18]]"
+      points: "[[0.4434, 0.18], [0.4434, -0.18], [-0.0866, -0.18], [-0.0866, 0.18]]"
       min_points: 6
       visualize: true
       polygon_pub_topic: /collision_monitor/stop_zone

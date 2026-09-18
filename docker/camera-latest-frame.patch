@@ -1,0 +1,282 @@
+diff --git a/src/CameraNode.cpp b/src/CameraNode.cpp
+index 76ed413..9d907b2 100644
+--- a/src/CameraNode.cpp
++++ b/src/CameraNode.cpp
+@@ -15,6 +15,7 @@
+ #include <cv_bridge/cv_bridge.h>
+ #endif
+ #include <atomic>
++#include <condition_variable>
+ #include <diagnostic_msgs/msg/diagnostic_array.hpp>
+ #include <iostream>
+ #include <libcamera/base/shared_fd.h>
+@@ -32,6 +33,7 @@
+ #include <libcamera/request.h>
+ #include <libcamera/stream.h>
+ #include <memory>
++#include <mutex>
+ #include <opencv2/core/mat.hpp>
+ #include <opencv2/imgcodecs.hpp>
+ #include <optional>
+@@ -86,10 +88,12 @@ private:
+   libcamera::Stream *stream;
+   std::shared_ptr<libcamera::FrameBufferAllocator> allocator;
+   std::vector<std::unique_ptr<libcamera::Request>> requests;
+-  std::vector<std::thread> request_threads;
+-  std::unordered_map<const libcamera::Request *, std::mutex> request_mutexes;
+-  std::unordered_map<const libcamera::Request *, std::condition_variable> request_condvars;
++  std::thread processing_thread;
++  std::mutex completed_request_mutex;
++  std::condition_variable completed_request_condvar;
++  libcamera::Request *pending_request = nullptr;
+   std::atomic<bool> running;
++  int64_t last_published_timestamp_ns = -1;
+ 
+   struct buffer_info_t
+   {
+@@ -129,7 +133,10 @@ private:
+   requestComplete(libcamera::Request *const request);
+ 
+   void
+-  process(libcamera::Request *const request);
++  process();
++
++  void
++  requeueDroppedRequest(libcamera::Request *const request);
+ 
+   void
+   postParameterChange(const std::vector<rclcpp::Parameter> &parameters);
+@@ -347,8 +354,8 @@ CameraNode::CameraNode(const rclcpp::NodeOptions &options)
+ 
+   // publisher for raw and compressed image
+   pub_image = this->create_publisher<sensor_msgs::msg::Image>("~/image_raw", 1, pubopts);
+-  pub_image_compressed =
+-    this->create_publisher<sensor_msgs::msg::CompressedImage>("~/image_raw/compressed", 1, pubopts);
++  pub_image_compressed = this->create_publisher<sensor_msgs::msg::CompressedImage>(
++    "~/image_raw/compressed", rclcpp::SensorDataQoS().keep_last(1), pubopts);
+   pub_ci = this->create_publisher<sensor_msgs::msg::CameraInfo>("~/camera_info", 1, pubopts);
+   pub_diagnostics =
+     this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/diagnostics", 1);
+@@ -600,14 +607,10 @@ CameraNode::CameraNode(const rclcpp::NodeOptions &options)
+ 
+   assert(nbuffer >= 0 && requests.size() == size_t(nbuffer));
+ 
+-  // create a processing thread per request
++  // A single latest-frame-only worker prevents parallel JPEG encoders from
++  // saturating the CPU and publishing completed frames out of timestamp order.
+   running = true;
+-  for (const std::unique_ptr<libcamera::Request> &request : requests) {
+-    // create mutexes in-place
+-    request_mutexes[request.get()];
+-    request_condvars[request.get()];
+-    request_threads.emplace_back(&CameraNode::process, this, request.get());
+-  }
++  processing_thread = std::thread(&CameraNode::process, this);
+ 
+   // register callback
+   camera->requestCompleted.connect(this, &CameraNode::requestComplete);
+@@ -645,13 +648,11 @@ CameraNode::~CameraNode()
+   // stop request processing threads
+   running = false;
+ 
+-  // unlock all threads
+-  for (auto &[req, condvar] : request_condvars)
+-    condvar.notify_all();
++  completed_request_condvar.notify_all();
+ 
+-  // wait for all currently running threads to finish
+-  for (std::thread &thread : request_threads)
+-    thread.join();
++  // wait for the currently running encode to finish
++  if (processing_thread.joinable())
++    processing_thread.join();
+ 
+   // stop camera
+   if (camera->stop()) {
+@@ -704,27 +705,49 @@ CameraNode::onDisconnect()
+   }
+ 
+   running = false;
+-  for (auto &[req, condvar] : request_condvars)
+-    condvar.notify_all();
++  completed_request_condvar.notify_all();
+ }
+ 
+ void
+ CameraNode::requestComplete(libcamera::Request *const request)
+ {
+-  std::unique_lock lk(request_mutexes.at(request));
+-  request_condvars.at(request).notify_one();
++  libcamera::Request *dropped_request = nullptr;
++  {
++    std::scoped_lock lk(completed_request_mutex);
++    if (!running)
++      return;
++    dropped_request = std::exchange(pending_request, request);
++  }
++
++  if (dropped_request)
++    requeueDroppedRequest(dropped_request);
++
++  completed_request_condvar.notify_one();
+ }
+ 
+ void
+-CameraNode::process(libcamera::Request *const request)
++CameraNode::requeueDroppedRequest(libcamera::Request *const request)
+ {
+-  while (true) {
+-    // block until request is available
+-    std::unique_lock lk(request_mutexes.at(request));
+-    request_condvars.at(request).wait(lk);
++  request->reuse(libcamera::Request::ReuseBuffers);
++  if (const int ret = camera->queueRequest(request); ret < 0) {
++    RCLCPP_WARN_STREAM(get_logger(), "failed to requeue dropped request (" << request->toString() << "): " << strerror(-ret));
++    if (ret == -ENODEV || ret == -EACCES)
++      running = false;
++  }
++}
+ 
+-    if (!running)
+-      return;
++void
++CameraNode::process()
++{
++  while (true) {
++    libcamera::Request *request = nullptr;
++    {
++      std::unique_lock lk(completed_request_mutex);
++      completed_request_condvar.wait(lk, [this]() { return !running || pending_request; });
++      if (!running)
++        return;
++      request = std::exchange(pending_request, nullptr);
++    }
+ 
+     // prepare message header
+     std_msgs::msg::Header hdr;
+@@ -777,55 +800,99 @@ CameraNode::process(libcamera::Request *const request)
+       // prepare image messages
+       const libcamera::StreamConfiguration &cfg = stream->configuration();
+ 
+-      auto msg_img = std::make_unique<sensor_msgs::msg::Image>();
+-      auto msg_img_compressed = std::make_unique<sensor_msgs::msg::CompressedImage>();
++      const bool publish_raw = pub_image->get_subscription_count() > 0;
++      const bool publish_compressed = pub_image_compressed->get_subscription_count() > 0;
++      std::unique_ptr<sensor_msgs::msg::Image> msg_img;
++      std::unique_ptr<sensor_msgs::msg::CompressedImage> msg_img_compressed;
+ 
+       if (format_type(cfg.pixelFormat) == FormatType::RAW) {
+         // raw uncompressed image
+         assert(buffer_info[buffer].size == bytesused);
+-        msg_img->header = hdr;
+-        msg_img->width = cfg.size.width;
+-        msg_img->height = cfg.size.height;
+-        msg_img->step = cfg.stride;
+-        msg_img->encoding = get_ros_encoding(cfg.pixelFormat);
+-        msg_img->is_bigendian = (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
+-        msg_img->data.resize(buffer_info[buffer].size);
+-        memcpy(msg_img->data.data(), buffer_info[buffer].data, buffer_info[buffer].size);
+-
+-        // compress to jpeg
+-        if (pub_image_compressed->get_subscription_count()) {
++        if (publish_raw || publish_compressed) {
++          msg_img = std::make_unique<sensor_msgs::msg::Image>();
++          msg_img->header = hdr;
++          msg_img->width = cfg.size.width;
++          msg_img->height = cfg.size.height;
++          msg_img->step = cfg.stride;
++          msg_img->encoding = get_ros_encoding(cfg.pixelFormat);
++          msg_img->is_bigendian = (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
++        }
++
++        // Encode directly from the mapped libcamera buffer. Avoid copying the
++        // full raw image unless a raw subscriber actually exists.
++        if (publish_compressed) {
++          msg_img_compressed = std::make_unique<sensor_msgs::msg::CompressedImage>();
+           try {
+-            compressImageMsg(*msg_img, *msg_img_compressed,
+-                             {cv::IMWRITE_JPEG_QUALITY, jpeg_quality});
++            if (msg_img->encoding == sensor_msgs::image_encodings::BGR8) {
++              const cv::Mat image(
++                cfg.size.height, cfg.size.width, CV_8UC3,
++                buffer_info[buffer].data, cfg.stride);
++              msg_img_compressed->header = hdr;
++              msg_img_compressed->format = "jpg";
++              cv::imencode(
++                ".jpg", image, msg_img_compressed->data,
++                {cv::IMWRITE_JPEG_QUALITY, jpeg_quality});
++            }
++            else {
++              msg_img->data.resize(buffer_info[buffer].size);
++              memcpy(msg_img->data.data(), buffer_info[buffer].data, buffer_info[buffer].size);
++              compressImageMsg(
++                *msg_img, *msg_img_compressed,
++                {cv::IMWRITE_JPEG_QUALITY, jpeg_quality});
++            }
+           }
+           catch (const cv_bridge::Exception &e) {
+             RCLCPP_ERROR_STREAM(get_logger(), e.what());
+           }
++          catch (const cv::Exception &e) {
++            RCLCPP_ERROR_STREAM(get_logger(), e.what());
++          }
++        }
++
++        if (publish_raw && msg_img->data.empty()) {
++          msg_img->data.resize(buffer_info[buffer].size);
++          memcpy(msg_img->data.data(), buffer_info[buffer].data, buffer_info[buffer].size);
+         }
+       }
+       else if (format_type(cfg.pixelFormat) == FormatType::COMPRESSED) {
+         // compressed image
+         assert(bytesused < buffer_info[buffer].size);
+-        msg_img_compressed->header = hdr;
+-        msg_img_compressed->format = get_ros_encoding(cfg.pixelFormat);
+-        msg_img_compressed->data.resize(bytesused);
+-        memcpy(msg_img_compressed->data.data(), buffer_info[buffer].data, bytesused);
++        if (publish_compressed || publish_raw) {
++          msg_img_compressed = std::make_unique<sensor_msgs::msg::CompressedImage>();
++          msg_img_compressed->header = hdr;
++          msg_img_compressed->format = get_ros_encoding(cfg.pixelFormat);
++          msg_img_compressed->data.resize(bytesused);
++          memcpy(msg_img_compressed->data.data(), buffer_info[buffer].data, bytesused);
++        }
+ 
+         // decompress into raw rgb8 image
+-        if (pub_image->get_subscription_count())
++        if (publish_raw) {
++          msg_img = std::make_unique<sensor_msgs::msg::Image>();
+           cv_bridge::toCvCopy(*msg_img_compressed, "rgb8")->toImageMsg(*msg_img);
++        }
+       }
+       else {
+         throw std::runtime_error("unsupported pixel format: " +
+                                  stream->configuration().pixelFormat.toString());
+       }
+ 
+-      pub_image->publish(std::move(msg_img));
+-      pub_image_compressed->publish(std::move(msg_img_compressed));
+-
+-      sensor_msgs::msg::CameraInfo ci = cim.getCameraInfo();
+-      ci.header = hdr;
+-      pub_ci->publish(ci);
++      const int64_t timestamp_ns = rclcpp::Time(hdr.stamp).nanoseconds();
++      if (timestamp_ns > last_published_timestamp_ns) {
++        if (publish_raw && msg_img)
++          pub_image->publish(std::move(msg_img));
++        if (publish_compressed && msg_img_compressed)
++          pub_image_compressed->publish(std::move(msg_img_compressed));
++
++        sensor_msgs::msg::CameraInfo ci = cim.getCameraInfo();
++        ci.header = hdr;
++        pub_ci->publish(ci);
++        last_published_timestamp_ns = timestamp_ns;
++      }
++      else {
++        RCLCPP_WARN_STREAM_THROTTLE(
++          get_logger(), *get_clock(), 5000,
++          "dropping camera frame with non-monotonic timestamp");
++      }
+     }
+     else if (request->status() == libcamera::Request::RequestCancelled) {
+       diagnostic_status.level = diagnostic_msgs::msg::DiagnosticStatus::WARN;

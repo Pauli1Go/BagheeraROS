@@ -21,7 +21,7 @@ class ControllerTeleop(Node):
         super().__init__("bagheera_controller")
         self.declare_parameter("joystick_index", 0)
         self.declare_parameter("steering_axis", 2)
-        self.declare_parameter("throttle_axis", 3)
+        self.declare_parameter("throttle_axis", 1)
         self.declare_parameter("deadman_button", 4)
         self.declare_parameter("deadzone", 0.05)
         self.declare_parameter("max_linear_speed", 0.25)

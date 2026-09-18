@@ -18,12 +18,12 @@ bagheera_controller:
     cmd_vel_topic: /cmd_vel_teleop
     joystick_index: 0
     steering_axis: 2
-    throttle_axis: 3
+    throttle_axis: 1
     deadman_button: 4
     deadzone: 0.05
     # Conservative manual-mapping limits. At the G2B's ~9.6 Hz scan rate
-    # these stay near 1.7 cm and 3 degrees of motion per scan.
+    # these stay near 1.7 cm and 1.8 degrees of motion per scan.
     max_linear_speed: 0.16
-    max_angular_speed: 0.50
+    max_angular_speed: 0.30
     publish_rate: 20.0
     joystick_rescan_interval: 1.0

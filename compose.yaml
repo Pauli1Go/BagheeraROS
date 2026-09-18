@@ -8,6 +8,7 @@ services:
     image: bagheera-ros:local
     container_name: bagheera-base
     entrypoint: /bagheera_entrypoint.sh
+    command: ["ros2", "launch", "bagheera_base", "manual_control.launch.py"]
     network_mode: host
     ipc: host
     privileged: true

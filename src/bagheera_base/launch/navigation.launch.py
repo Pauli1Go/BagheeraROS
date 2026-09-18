@@ -27,6 +27,27 @@ def generate_launch_description():
         name="planner_server",
         **common,
     )
+    keepout_mask_server = Node(
+        package="nav2_map_server",
+        executable="map_server",
+        name="keepout_filter_mask_server",
+        output="screen",
+        parameters=[params],
+    )
+    localization_mask_server = Node(
+        package="nav2_map_server",
+        executable="map_server",
+        name="localization_exclusion_mask_server",
+        output="screen",
+        parameters=[params],
+    )
+    filter_info_server = Node(
+        package="nav2_map_server",
+        executable="costmap_filter_info_server",
+        name="costmap_filter_info_server",
+        output="screen",
+        parameters=[params],
+    )
     behaviors = Node(
         package="nav2_behaviors",
         executable="behavior_server",
@@ -51,13 +72,50 @@ def generate_launch_description():
         name="velocity_smoother",
         remappings=[
             ("cmd_vel", "/cmd_vel_nav"),
-            # Direct to the mux navigation lane; the collision monitor was
-            # removed: its stop polygon deadlocked every turn near walls.
-            # Collision avoidance lives in the controller (RPP isCollisionImminent,
-            # shim rotated-footprint check) + BT replanning.
-            ("cmd_vel_smoothed", "/cmd_vel_monitored"),
+            # The autonomous dock guard owns the final navigation lane. The
+            # collision monitor remains removed; collision avoidance lives in
+            # RPP's footprint checks, the costmaps and BT replanning.
+            ("cmd_vel_smoothed", "/cmd_vel_automatic_raw"),
         ],
         **common,
+    )
+    dock_guard = Node(
+        package="bagheera_base",
+        executable="bagheera_autonomy_dock_guard",
+        name="bagheera_autonomy_dock_guard",
+        output="screen",
+        parameters=[params],
+    )
+    localization_guard = Node(
+        package="bagheera_base",
+        executable="bagheera_localization_exclusion_guard",
+        name="bagheera_localization_exclusion_guard",
+        output="screen",
+        parameters=[params],
+    )
+    keepout_relay = Node(
+        package="bagheera_base",
+        executable="bagheera_keepout_mask_relay",
+        name="bagheera_keepout_mask_relay",
+        output="screen",
+        parameters=[params],
+    )
+    filter_lifecycle_manager = Node(
+        package="nav2_lifecycle_manager",
+        executable="lifecycle_manager",
+        name="lifecycle_manager_costmap_filters",
+        output="screen",
+        parameters=[
+            {
+                "autostart": True,
+                "node_names": [
+                    "keepout_filter_mask_server",
+                    "localization_exclusion_mask_server",
+                    "costmap_filter_info_server",
+                ],
+                "bond_timeout": 4.0,
+            }
+        ],
     )
     lifecycle_manager = Node(
         package="nav2_lifecycle_manager",
@@ -89,9 +147,16 @@ def generate_launch_description():
         [
             controller,
             planner,
+            keepout_mask_server,
+            localization_mask_server,
+            filter_info_server,
             behaviors,
             navigator,
             velocity_smoother,
+            dock_guard,
+            localization_guard,
+            keepout_relay,
+            filter_lifecycle_manager,
             lifecycle_manager,
             goal_bridge,
         ]

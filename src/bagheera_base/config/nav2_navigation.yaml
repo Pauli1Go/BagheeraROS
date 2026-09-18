@@ -118,7 +118,7 @@ local_costmap:
       width: 3
       height: 3
       resolution: 0.05
-      footprint: "[[0.34, 0.18], [0.34, -0.18], [-0.19, -0.18], [-0.19, 0.18]]"
+      footprint: "[[0.4434, 0.18], [0.4434, -0.18], [-0.0866, -0.18], [-0.0866, 0.18]]"
       # LiDAR-measured limits shifted to axle-centred base_link (front 33 cm,
       # rear 18 cm, sides 17 cm) + 1 cm on each side. The
       # inflation gradient (0.50/3.0) keeps the planner centered between
@@ -126,6 +126,7 @@ local_costmap:
       # rest - no hard stops.
       footprint_padding: 0.0
       plugins: ["obstacle_layer", "inflation_layer"]
+      filters: ["keepout_filter"]
       obstacle_layer:
         plugin: nav2_costmap_2d::ObstacleLayer
         enabled: true
@@ -135,6 +136,11 @@ local_costmap:
           data_type: LaserScan
           clearing: true
           marking: true
+          # Kilted defaults the per-source height limit to 0.0 m. Since the
+          # LiDAR scan plane is about 0.30 m above the floor, that silently
+          # discarded every return even though the layer-level default is 2 m.
+          min_obstacle_height: 0.0
+          max_obstacle_height: 1.0
           obstacle_min_range: 0.30
           obstacle_max_range: 2.5
           raytrace_min_range: 0.30
@@ -146,6 +152,10 @@ local_costmap:
         plugin: nav2_costmap_2d::InflationLayer
         inflation_radius: 0.25
         cost_scaling_factor: 5.0
+      keepout_filter:
+        plugin: nav2_costmap_2d::KeepoutFilter
+        enabled: true
+        filter_info_topic: /costmap_filter_info
       always_send_full_costmap: true
       service_introspection_mode: disabled
 
@@ -160,9 +170,10 @@ global_costmap:
       transform_tolerance: 0.30
       resolution: 0.05
       track_unknown_space: true
-      footprint: "[[0.34, 0.18], [0.34, -0.18], [-0.19, -0.18], [-0.19, 0.18]]"
+      footprint: "[[0.4434, 0.18], [0.4434, -0.18], [-0.0866, -0.18], [-0.0866, 0.18]]"
       footprint_padding: 0.0
       plugins: ["static_layer", "denoise_layer", "obstacle_layer", "inflation_layer"]
+      filters: ["keepout_filter"]
       static_layer:
         plugin: nav2_costmap_2d::StaticLayer
         map_subscribe_transient_local: true
@@ -183,6 +194,8 @@ global_costmap:
           data_type: LaserScan
           clearing: true
           marking: true
+          min_obstacle_height: 0.0
+          max_obstacle_height: 1.0
           obstacle_min_range: 0.30
           obstacle_max_range: 3.0
           raytrace_min_range: 0.30
@@ -197,6 +210,10 @@ global_costmap:
         # hug the walls and cut corners too tightly.
         inflation_radius: 0.50
         cost_scaling_factor: 3.0
+      keepout_filter:
+        plugin: nav2_costmap_2d::KeepoutFilter
+        enabled: true
+        filter_info_topic: /costmap_filter_info
       always_send_full_costmap: true
       service_introspection_mode: disabled
 
@@ -254,3 +271,63 @@ velocity_smoother:
     odom_duration: 0.2
     deadband_velocity: [0.0, 0.0, 0.0]
     velocity_timeout: 0.5
+
+bagheera_autonomy_dock_guard:
+  ros__parameters:
+    input_topic: /cmd_vel_automatic_raw
+    output_topic: /cmd_vel_monitored
+    power_topic: /hardware_bridge/power
+    odom_topic: /odometry/filtered
+    # The original Mowgli stack also uses 10 V as the electrical distinction
+    # between physically connected to the charger and away from the dock.
+    dock_voltage_threshold: 10.0
+    dock_debounce_s: 1.0
+    command_timeout_s: 0.5
+    reverse_distance_m: 0.80
+    reverse_speed_mps: 0.08
+    reverse_timeout_s: 18.0
+    reverse_heading_kp: 1.5
+    reverse_cross_track_kp: 1.0
+    reverse_max_angular_rps: 0.25
+    turn_angle_rad: 1.5707963267948966
+    # Same deliberately reduced angular speed used for manual mapping.
+    turn_max_speed_rps: 0.30
+    turn_min_speed_rps: 0.16
+    turn_gain: 0.8
+    turn_tolerance_rad: 0.03490658503988659
+    turn_timeout_s: 10.0
+    settle_time_s: 0.30
+
+keepout_filter_mask_server:
+  ros__parameters:
+    use_sim_time: false
+    yaml_filename: /bagheera_ws/maps/keepout_mask.yaml
+    topic_name: /keepout_filter_mask
+    frame_id: map
+
+localization_exclusion_mask_server:
+  ros__parameters:
+    use_sim_time: false
+    yaml_filename: /bagheera_ws/maps/localization_exclusion_mask.yaml
+    topic_name: /localization_exclusion_mask
+    frame_id: map
+
+costmap_filter_info_server:
+  ros__parameters:
+    use_sim_time: false
+    type: 0
+    filter_info_topic: /costmap_filter_info
+    mask_topic: /keepout_filter_mask_live
+    base: 0.0
+    multiplier: 1.0
+
+bagheera_localization_exclusion_guard:
+  ros__parameters:
+    mask_topic: /localization_exclusion_mask
+    occupied_threshold: 50
+    reset_cooldown_s: 1.0
+
+bagheera_keepout_mask_relay:
+  ros__parameters:
+    input_topic: /keepout_filter_mask
+    output_topic: /keepout_filter_mask_live

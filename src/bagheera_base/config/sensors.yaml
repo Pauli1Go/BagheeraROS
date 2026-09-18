@@ -42,11 +42,15 @@ bagheera_optical_flow:
     invert_x: false
     invert_y: false
     minimum_quality: 0
-    # The PMW3901 is 8 cm ahead of axle-centred base_link. Remove its circular
+    # The PMW3901 is 18.34 cm ahead and 1.10 cm left of axle-centred base_link. Remove its circular
     # sweep during pivots so the published twist describes base_link.
-    lever_arm_x: 0.08
-    lever_arm_y: 0.0
+    lever_arm_x: 0.1834103944436625
+    lever_arm_y: 0.011005001769871877
     rotation_gate_enabled: true
+    # Reject PMW translation during any deliberate turn. The previous 0.25
+    # rad/s threshold let samples through while accelerating/decelerating and
+    # seeded a persistent false lateral EKF velocity.
+    rotation_gate_rad_s: 0.08
     imu_topic: /imu/wt901/data_raw
     imu_max_age: 0.5
 
@@ -113,16 +117,16 @@ camera:
     format: RGB888
     width: 1920
     height: 1080
-    # 15 FPS gives future AprilTag docking enough temporal resolution. The
-    # frame durations are in microseconds. JPEG bandwidth is scene-dependent;
-    # quality 20 measured roughly 4-13 Mbit/s at 1920x1080 on the robot.
+    # Keep the full fisheye field of view at 1080p, but cap the monitoring
+    # stream at 10 FPS so camera encoding cannot starve localization/Nav2.
+    # Frame durations are in microseconds.
     jpeg_quality: 20
-    FrameDurationLimits: [66667, 66667]
+    FrameDurationLimits: [100000, 100000]
     camera_info_url: "file:///bagheera_ws/install/share/bagheera_base/config/camera_fisheye.yaml"
     # Force the complete 4:3 sensor area so the fisheye field of view is kept.
     sensor_mode: "2592:1944"
     orientation: 180
     frame_id: camera_optical_frame
-    use_node_time: true
+    use_node_time: false
     AwbEnable: true
     AwbMode: 0

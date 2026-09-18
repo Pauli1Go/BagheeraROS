@@ -19,6 +19,11 @@ def axes_to_twist(
     max_angular_speed: float,
 ):
     # SDL axis values are positive backward/right. ROS is forward/CCW positive.
-    linear = -apply_deadzone(throttle_axis, deadzone) * max_linear_speed
-    angular = -apply_deadzone(steering_axis, deadzone) * max_angular_speed
+    throttle = apply_deadzone(throttle_axis, deadzone)
+    steering = apply_deadzone(steering_axis, deadzone)
+    linear = -throttle * max_linear_speed
+    # Manual mapping deliberately separates translation and rotation: while
+    # the left stick commands motion, steering is ignored. The right stick
+    # therefore only produces an in-place turn from a standstill.
+    angular = 0.0 if throttle else -steering * max_angular_speed
     return linear, angular

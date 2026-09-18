@@ -79,7 +79,7 @@ def generate_launch_description():
         DeclareLaunchArgument("serial_port", default_value="/dev/mowgli"),
         DeclareLaunchArgument("joystick_index", default_value="0"),
         DeclareLaunchArgument("deadman_button", default_value="4"),
-        DeclareLaunchArgument("throttle_axis", default_value="3"),
+        DeclareLaunchArgument("throttle_axis", default_value="1"),
         DeclareLaunchArgument("steering_axis", default_value="2"),
         DeclareLaunchArgument("use_lidar", default_value="true"),
         DeclareLaunchArgument("use_optical_flow", default_value="true"),
