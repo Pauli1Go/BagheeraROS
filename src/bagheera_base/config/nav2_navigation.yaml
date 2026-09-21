@@ -40,8 +40,12 @@ controller_server:
     goal_checker_plugins: ["goal_checker"]
     controller_plugins: ["FollowPath"]
     progress_checker:
-      plugin: nav2_controller::SimpleProgressChecker
+      # Unlike SimpleProgressChecker, this counts an in-place turn as real
+      # progress and therefore does not trigger recovery during final yaw
+      # alignment. A robot that does not translate or rotate still times out.
+      plugin: nav2_controller::PoseProgressChecker
       required_movement_radius: 0.08
+      required_movement_angle: 0.10
       # In-place rotations are legitimate progress: a 180 deg turn at
       # 0.5 rad/s takes ~7 s. 8 s fired BackUp on open floor mid-rotation.
       movement_time_allowance: 20.0
@@ -73,7 +77,9 @@ controller_server:
       # immediately; the velocity smoother applies the final 0.30 rad/s cap.
       max_angular_accel: 8.0
       simulate_ahead_time: 1.0
-      rotate_to_goal_heading: true
+      # RPP owns final goal orientation. Keeping this enabled in the shim made
+      # its stateless XY check fight RPP when AMCL jitter crossed the XY limit.
+      rotate_to_goal_heading: false
       # Rotate in place only when the goal/path first arrives. With false the
       # shim re-checked the 0.30 m sampled point every cycle, and each 1 Hz
       # replan near doors flipped its side: R-L-R-L in-place paddling for
@@ -102,6 +108,9 @@ controller_server:
       cost_scaling_gain: 1.0
       inflation_cost_scaling_factor: 5.0
       use_rotate_to_heading: true
+      # Once XY tolerance has been reached, keep rotating to the requested goal
+      # yaw instead of switching back to path tracking after minor pose jitter.
+      stateful: true
       allow_reversing: false
       rotate_to_heading_min_angle: 0.50
       max_robot_pose_search_dist: 5.0
