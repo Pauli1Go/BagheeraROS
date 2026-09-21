@@ -36,8 +36,9 @@ bagheera:
     # Sensor is measured 90 mm above the floor; base_link is one wheel radius
     # above it, hence 0.09000 - 0.04475 = 0.04525 m.
     optical_flow_z: 0.04525
-    # Front-facing camera at the physical front edge.
-    camera_x: 0.33
+    # Front-facing camera; its optical center is measured about 25 cm ahead of
+    # the LiDAR/IMU/PMW3901 sensor cluster.
+    camera_x: 0.4334103944436625
     camera_y: 0.0
     camera_z: 0.12
     camera_roll: 0.0
@@ -61,8 +62,11 @@ hardware_bridge:
     wheel_pid_kd: 0.01
     wheel_pid_integral_limit: 15.0
     wheel_pid_pwm_per_mps: 282.135
-    yaw_kp: 0.12
-    yaw_ki: 0.40
+    # Bagheera office-floor calibration: integral action caused a 5-6 s yaw
+    # limit cycle. A proportional-only loop damps wheel mismatch without
+    # accumulating the delayed correction that produced the weave.
+    yaw_kp: 0.30
+    yaw_ki: 0.0
     yaw_trim_limit_mps: 0.15
     yaw_loop_enabled: true
     yaw_gyro_sign: 1

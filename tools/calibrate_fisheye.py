@@ -7,7 +7,7 @@ Usage (on a machine with OpenCV, e.g. the Mac)::
         --pattern 9x6 --square 0.024 --out src/bagheera_base/config/camera_fisheye.yaml
 
 Board: 10x7 squares of 24 mm -> 9x6 inner corners. Images are the already
-180-degree-rotated /camera/image_raw frames (1920x1080, bgr8).
+180-degree-rotated /camera/image_raw frames (1920x1080, mono8 or bgr8).
 
 Writes a ROS camera_info YAML (distortion_model: equidistant) that can be
 referenced from sensors.yaml via camera_info_url, plus undistorted previews

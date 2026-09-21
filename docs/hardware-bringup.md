@@ -20,10 +20,13 @@ kernel. Bagheera therefore uses `ros-kilted-camera-ros`, which brings the newer
 ROS-packaged libcamera runtime into the container. The container also mounts
 `/run/udev` read-only so libcamera can enumerate the media graph.
 
-The ROS node publishes a 1920 x 1080 OpenCV-compatible `bgr8` view on
-`/camera/image_raw`, rotated by 180 degrees to match the physical installation.
-It forces the 2592 x 1944 sensor mode before scaling instead of selecting a
-low-resolution sensor crop. Automatic white balance is explicitly enabled.
+The ROS node requests a 1920 x 1080 NV21 stream, uses only its full-resolution
+luminance plane and publishes it as `mono8` on `/camera/image_raw`, rotated by
+180 degrees to match the physical installation. The compressed topic contains
+grayscale JPEG encoded directly from the same plane. This avoids RGB copies and
+colour conversion while remaining ideal for AprilTag detection. It forces the
+2592 x 1944 sensor mode before scaling instead of selecting a low-resolution
+sensor crop, so the existing 1920 x 1080 fisheye calibration remains valid.
 
 Without a calibration file, `camera_ros` reports a `CameraInfo` size of 0 x 0,
 which Foxglove rejects as `invalid image size 0x0`. The measurement normalizer

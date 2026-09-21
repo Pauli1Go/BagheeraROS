@@ -40,6 +40,14 @@ class Wt901ProtocolTest(unittest.TestCase):
         self.assertAlmostEqual(converted[1], -2.0e-6)
         self.assertAlmostEqual(converted[2], 0.5e-6)
 
+    def test_inertial_only_block_does_not_require_magnetometer_bytes(self):
+        block = struct.pack("<6h", 0, -2048, 2048, 0, -16384, 16384)
+        sample = decode_motion_block(block)
+
+        self.assertAlmostEqual(sample.acceleration[1], -9.80665)
+        self.assertAlmostEqual(sample.angular_velocity[2], math.radians(1000.0))
+        self.assertEqual(sample.magnetic_raw, (0, 0, 0))
+
     def test_unknown_magnetometer_type_is_rejected(self):
         with self.assertRaises(ValueError):
             magnetic_raw_to_tesla((0, 0, 0), 99)

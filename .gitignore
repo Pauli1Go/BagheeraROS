@@ -7,3 +7,4 @@ __pycache__/
 .DS_Store
 src/bagheera_base/config/calib_undistorted_preview.png
 maps/compass_calibration.yaml
+sensor_logs/

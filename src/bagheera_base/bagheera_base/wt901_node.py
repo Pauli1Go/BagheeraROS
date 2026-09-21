@@ -15,6 +15,7 @@ except ImportError as error:  # pragma: no cover - exercised by deployment
 
 from .wt901_protocol import (
     GyroBiasEstimator,
+    INERTIAL_BLOCK_LENGTH,
     MAG_SENSOR_REGISTER,
     MOTION_BLOCK_LENGTH,
     MOTION_REGISTER,
@@ -41,6 +42,7 @@ class Wt901Node(Node):
         self.declare_parameter("linear_acceleration_variance", 0.04)
         self.declare_parameter("magnetic_field_variance", 2.5e-11)
         self.declare_parameter("mag_sensor_type", -1)
+        self.declare_parameter("publish_magnetometer", True)
 
         bus_number = int(self.get_parameter("i2c_bus").value)
         self._address = int(self.get_parameter("i2c_address").value)
@@ -58,6 +60,14 @@ class Wt901Node(Node):
         magnetic_variance = float(
             self.get_parameter("magnetic_field_variance").value
         )
+        self._publish_magnetometer = bool(
+            self.get_parameter("publish_magnetometer").value
+        )
+        self._motion_block_length = (
+            MOTION_BLOCK_LENGTH
+            if self._publish_magnetometer
+            else INERTIAL_BLOCK_LENGTH
+        )
         if smbus is None:
             raise RuntimeError("python3-smbus is required") from SMBUS_IMPORT_ERROR
         if not 0 < self._address < 0x80:
@@ -72,18 +82,20 @@ class Wt901Node(Node):
             raise ValueError("IMU variances must be positive")
 
         self._bus = smbus.SMBus(bus_number)
-        configured_mag_type = int(self.get_parameter("mag_sensor_type").value)
-        if configured_mag_type >= 0:
-            self._mag_sensor_type = configured_mag_type
-        else:
-            type_data = self._bus.read_i2c_block_data(
-                self._address, MAG_SENSOR_REGISTER, 2
-            )
-            self._mag_sensor_type = int.from_bytes(
-                bytes(type_data), byteorder="little", signed=True
-            )
-        # Validate the reported sensor type before starting the timer.
-        magnetic_raw_to_tesla((0, 0, 0), self._mag_sensor_type)
+        self._mag_sensor_type: int | None = None
+        if self._publish_magnetometer:
+            configured_mag_type = int(self.get_parameter("mag_sensor_type").value)
+            if configured_mag_type >= 0:
+                self._mag_sensor_type = configured_mag_type
+            else:
+                type_data = self._bus.read_i2c_block_data(
+                    self._address, MAG_SENSOR_REGISTER, 2
+                )
+                self._mag_sensor_type = int.from_bytes(
+                    bytes(type_data), byteorder="little", signed=True
+                )
+            # Validate the reported sensor type before starting the timer.
+            magnetic_raw_to_tesla((0, 0, 0), self._mag_sensor_type)
         self._bias = GyroBiasEstimator(calibration_samples)
         self._angular_covariance = _diagonal_covariance(angular_variance)
         self._acceleration_covariance = _diagonal_covariance(acceleration_variance)
@@ -91,22 +103,28 @@ class Wt901Node(Node):
         self._publisher = self.create_publisher(
             Imu, "/imu/wt901/data_raw", qos_profile_sensor_data
         )
-        self._mag_publisher = self.create_publisher(
-            MagneticField, "/imu/wt901/mag_raw", qos_profile_sensor_data
+        self._mag_publisher = (
+            self.create_publisher(
+                MagneticField, "/imu/wt901/mag_raw", qos_profile_sensor_data
+            )
+            if self._publish_magnetometer
+            else None
         )
         self._consecutive_errors = 0
         self._calibration_announced = False
         self._timer = self.create_timer(1.0 / rate, self._poll)
         self.get_logger().info(
             f"WT901 on /dev/i2c-{bus_number} address 0x{self._address:02x}; "
-            f"magnetometer type {self._mag_sensor_type}; keep robot still for "
+            f"magnetometer {'enabled' if self._publish_magnetometer else 'disabled'}"
+            f"{f' (type {self._mag_sensor_type})' if self._publish_magnetometer else ''}; "
+            "keep robot still for "
             f"{calibration_samples / rate:.1f} s"
         )
 
     def _poll(self) -> None:
         try:
             data = self._bus.read_i2c_block_data(
-                self._address, MOTION_REGISTER, MOTION_BLOCK_LENGTH
+                self._address, MOTION_REGISTER, self._motion_block_length
             )
             sample = decode_motion_block(data)
             self._consecutive_errors = 0
@@ -119,16 +137,17 @@ class Wt901Node(Node):
             return
 
         stamp = self.get_clock().now().to_msg()
-        magnetic = MagneticField()
-        magnetic.header.stamp = stamp
-        magnetic.header.frame_id = self._frame_id
-        (
-            magnetic.magnetic_field.x,
-            magnetic.magnetic_field.y,
-            magnetic.magnetic_field.z,
-        ) = magnetic_raw_to_tesla(sample.magnetic_raw, self._mag_sensor_type)
-        magnetic.magnetic_field_covariance = self._magnetic_covariance
-        self._mag_publisher.publish(magnetic)
+        if self._mag_publisher is not None and self._mag_sensor_type is not None:
+            magnetic = MagneticField()
+            magnetic.header.stamp = stamp
+            magnetic.header.frame_id = self._frame_id
+            (
+                magnetic.magnetic_field.x,
+                magnetic.magnetic_field.y,
+                magnetic.magnetic_field.z,
+            ) = magnetic_raw_to_tesla(sample.magnetic_raw, self._mag_sensor_type)
+            magnetic.magnetic_field_covariance = self._magnetic_covariance
+            self._mag_publisher.publish(magnetic)
 
         if not self._bias.update(sample.angular_velocity):
             return

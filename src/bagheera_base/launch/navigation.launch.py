@@ -113,7 +113,9 @@ def generate_launch_description():
                     "localization_exclusion_mask_server",
                     "costmap_filter_info_server",
                 ],
-                "bond_timeout": 4.0,
+                "bond_timeout": 12.0,
+                "bond_heartbeat_period": 1.0,
+                "service_timeout": 10.0,
             }
         ],
     )
@@ -132,7 +134,9 @@ def generate_launch_description():
                     "velocity_smoother",
                     "bt_navigator",
                 ],
-                "bond_timeout": 4.0,
+                "bond_timeout": 12.0,
+                "bond_heartbeat_period": 1.0,
+                "service_timeout": 10.0,
             }
         ],
     )

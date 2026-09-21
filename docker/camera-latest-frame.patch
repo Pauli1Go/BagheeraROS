@@ -1,5 +1,5 @@
 diff --git a/src/CameraNode.cpp b/src/CameraNode.cpp
-index 76ed413..9d907b2 100644
+index 76ed413..b369da3 100644
 --- a/src/CameraNode.cpp
 +++ b/src/CameraNode.cpp
 @@ -15,6 +15,7 @@
@@ -119,30 +119,30 @@ index 76ed413..9d907b2 100644
 +    requeueDroppedRequest(dropped_request);
 +
 +  completed_request_condvar.notify_one();
- }
- 
- void
--CameraNode::process(libcamera::Request *const request)
++}
++
++void
 +CameraNode::requeueDroppedRequest(libcamera::Request *const request)
- {
--  while (true) {
--    // block until request is available
--    std::unique_lock lk(request_mutexes.at(request));
--    request_condvars.at(request).wait(lk);
++{
 +  request->reuse(libcamera::Request::ReuseBuffers);
 +  if (const int ret = camera->queueRequest(request); ret < 0) {
 +    RCLCPP_WARN_STREAM(get_logger(), "failed to requeue dropped request (" << request->toString() << "): " << strerror(-ret));
 +    if (ret == -ENODEV || ret == -EACCES)
 +      running = false;
 +  }
-+}
+ }
  
+ void
+-CameraNode::process(libcamera::Request *const request)
++CameraNode::process()
+ {
+   while (true) {
+-    // block until request is available
+-    std::unique_lock lk(request_mutexes.at(request));
+-    request_condvars.at(request).wait(lk);
+-
 -    if (!running)
 -      return;
-+void
-+CameraNode::process()
-+{
-+  while (true) {
 +    libcamera::Request *request = nullptr;
 +    {
 +      std::unique_lock lk(completed_request_mutex);
@@ -154,7 +154,7 @@ index 76ed413..9d907b2 100644
  
      // prepare message header
      std_msgs::msg::Header hdr;
-@@ -777,55 +800,99 @@ CameraNode::process(libcamera::Request *const request)
+@@ -777,55 +800,130 @@ CameraNode::process(libcamera::Request *const request)
        // prepare image messages
        const libcamera::StreamConfiguration &cfg = stream->configuration();
  
@@ -167,7 +167,7 @@ index 76ed413..9d907b2 100644
  
        if (format_type(cfg.pixelFormat) == FormatType::RAW) {
          // raw uncompressed image
-         assert(buffer_info[buffer].size == bytesused);
+-        assert(buffer_info[buffer].size == bytesused);
 -        msg_img->header = hdr;
 -        msg_img->width = cfg.size.width;
 -        msg_img->height = cfg.size.height;
@@ -179,27 +179,48 @@ index 76ed413..9d907b2 100644
 -
 -        // compress to jpeg
 -        if (pub_image_compressed->get_subscription_count()) {
++        const bool publish_luminance = cfg.pixelFormat == libcamera::formats::NV21;
++        const std::string source_encoding = get_ros_encoding(cfg.pixelFormat);
++        const libcamera::FrameBuffer::Plane &first_plane = buffer->planes().front();
++        auto *const first_plane_data =
++          static_cast<uint8_t *>(buffer_info[buffer].data) + first_plane.offset;
++        if (publish_luminance &&
++            first_plane.length < static_cast<size_t>(cfg.stride) * cfg.size.height) {
++          throw std::runtime_error("NV21 luminance plane is smaller than the configured image");
++        }
++
 +        if (publish_raw || publish_compressed) {
 +          msg_img = std::make_unique<sensor_msgs::msg::Image>();
 +          msg_img->header = hdr;
 +          msg_img->width = cfg.size.width;
 +          msg_img->height = cfg.size.height;
-+          msg_img->step = cfg.stride;
-+          msg_img->encoding = get_ros_encoding(cfg.pixelFormat);
++          msg_img->step = publish_luminance ? cfg.size.width : cfg.stride;
++          msg_img->encoding = publish_luminance ? sensor_msgs::image_encodings::MONO8 : source_encoding;
 +          msg_img->is_bigendian = (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
 +        }
 +
-+        // Encode directly from the mapped libcamera buffer. Avoid copying the
-+        // full raw image unless a raw subscriber actually exists.
++        // Encode directly from the mapped libcamera buffer. For NV21, JPEG and
++        // vision consumers only need its full-resolution Y plane. This avoids
++        // copying chroma and avoids NV21 -> BGR -> JPEG colour conversions.
 +        if (publish_compressed) {
 +          msg_img_compressed = std::make_unique<sensor_msgs::msg::CompressedImage>();
            try {
 -            compressImageMsg(*msg_img, *msg_img_compressed,
 -                             {cv::IMWRITE_JPEG_QUALITY, jpeg_quality});
-+            if (msg_img->encoding == sensor_msgs::image_encodings::BGR8) {
++            if (publish_luminance) {
++              const cv::Mat image(
++                cfg.size.height, cfg.size.width, CV_8UC1,
++                first_plane_data, cfg.stride);
++              msg_img_compressed->header = hdr;
++              msg_img_compressed->format = "jpg";
++              cv::imencode(
++                ".jpg", image, msg_img_compressed->data,
++                {cv::IMWRITE_JPEG_QUALITY, jpeg_quality});
++            }
++            else if (source_encoding == sensor_msgs::image_encodings::BGR8) {
 +              const cv::Mat image(
 +                cfg.size.height, cfg.size.width, CV_8UC3,
-+                buffer_info[buffer].data, cfg.stride);
++                first_plane_data, cfg.stride);
 +              msg_img_compressed->header = hdr;
 +              msg_img_compressed->format = "jpg";
 +              cv::imencode(
@@ -223,8 +244,19 @@ index 76ed413..9d907b2 100644
 +        }
 +
 +        if (publish_raw && msg_img->data.empty()) {
-+          msg_img->data.resize(buffer_info[buffer].size);
-+          memcpy(msg_img->data.data(), buffer_info[buffer].data, buffer_info[buffer].size);
++          if (publish_luminance) {
++            msg_img->data.resize(static_cast<size_t>(cfg.size.width) * cfg.size.height);
++            for (unsigned int row = 0; row < cfg.size.height; ++row) {
++              memcpy(
++                msg_img->data.data() + static_cast<size_t>(row) * cfg.size.width,
++                first_plane_data + static_cast<size_t>(row) * cfg.stride,
++                cfg.size.width);
++            }
++          }
++          else {
++            msg_img->data.resize(buffer_info[buffer].size);
++            memcpy(msg_img->data.data(), buffer_info[buffer].data, buffer_info[buffer].size);
++          }
          }
        }
        else if (format_type(cfg.pixelFormat) == FormatType::COMPRESSED) {

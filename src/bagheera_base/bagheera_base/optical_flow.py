@@ -128,13 +128,15 @@ class OpticalFlowNode(Node):
         elapsed = (now_ns - self._last_stamp_ns) / 1_000_000_000.0
         self._last_stamp_ns = now_ns
 
-        raw = Vector3Stamped()
-        raw.header.stamp = now.to_msg()
-        raw.header.frame_id = "pmw3901_sensor"
-        raw.vector.x = float(sensor_x)
-        raw.vector.y = float(sensor_y)
-        raw.vector.z = float(quality)
-        self._raw_publisher.publish(raw)
+        stamp = now.to_msg()
+        if self._raw_publisher.get_subscription_count() > 0:
+            raw = Vector3Stamped()
+            raw.header.stamp = stamp
+            raw.header.frame_id = "pmw3901_sensor"
+            raw.vector.x = float(sensor_x)
+            raw.vector.y = float(sensor_y)
+            raw.vector.z = float(quality)
+            self._raw_publisher.publish(raw)
 
         if quality < self._minimum_quality or elapsed <= 0.0 or not math.isfinite(elapsed):
             return
@@ -146,7 +148,7 @@ class OpticalFlowNode(Node):
             invert_y=self._invert_y,
         )
         twist = TwistWithCovarianceStamped()
-        twist.header.stamp = raw.header.stamp
+        twist.header.stamp = stamp
         twist.header.frame_id = self._frame_id
         vx = robot_x * self._meters_per_count / elapsed
         vy = robot_y * self._meters_per_count / elapsed

@@ -34,7 +34,9 @@ bagheera_optical_flow:
     spi_chip_select: 0
     spi_speed_hz: 400000
     frame_id: base_link
-    publish_rate: 50.0
+    # PMW motion deltas accumulate between reads. 25 Hz matches the EKF rate;
+    # at 0.16 m/s each sample is only about 35 counts, so no resolution is lost.
+    publish_rate: 25.0
     mount_height_m: 0.09
     # Calibrated at 90 mm height: 2755 X-counts over 0.510 m.
     radians_per_count: 0.002057
@@ -113,8 +115,9 @@ camera:
   ros__parameters:
     camera: 0
     role: viewfinder
-    # camera_ros maps libcamera RGB byte order to ROS bgr8 for OpenCV users.
-    format: RGB888
+    # The patched camera_ros publishes only NV21's full-resolution luminance
+    # plane as mono8 and encodes grayscale JPEG directly from that plane.
+    format: NV21
     width: 1920
     height: 1080
     # Keep the full fisheye field of view at 1080p, but cap the monitoring

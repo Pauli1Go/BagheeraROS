@@ -1,6 +1,7 @@
 bt_navigator:
   ros__parameters:
     use_sim_time: false
+    bond_heartbeat_period: 1.0
     global_frame: map
     robot_base_frame: base_link
     odom_topic: /odometry/filtered
@@ -26,6 +27,7 @@ bt_navigator:
 controller_server:
   ros__parameters:
     use_sim_time: false
+    bond_heartbeat_period: 1.0
     enable_stamped_cmd_vel: true
     controller_frequency: 15.0
     costmap_update_timeout: 0.5
@@ -57,7 +59,9 @@ controller_server:
       angular_dist_threshold: 0.20
       angular_disengage_threshold: 0.10
       forward_sampling_distance: 0.30
-      rotate_to_heading_angular_vel: 0.50
+      # Match the proven manual mapping turn rate. Faster commands amplified
+      # the measured ~1.2 s steering-response delay.
+      rotate_to_heading_angular_vel: 0.30
       # Open-loop rotation: the closed-loop band tracked the (laggy) measured
       # yaw rate into a ~0.2 rad/s equilibrium, making small turns take 10 s.
       # Open-loop ramps at max_angular_accel and holds rotate_to_heading_angular_vel.
@@ -66,7 +70,7 @@ controller_server:
       # +-max_angular_accel*dt (dt = 1/15 s -> +-0.13). At 0.13 rad/s the wheel
       # speed difference is in the motor deadband, so measured stays ~0 and the
       # command never ramped up. 8.0 lets the command reach the 0.5 rad/s cap
-      # immediately; the velocity smoother still ramps at 2.0 rad/s^2.
+      # immediately; the velocity smoother applies the final 0.30 rad/s cap.
       max_angular_accel: 8.0
       simulate_ahead_time: 1.0
       rotate_to_goal_heading: true
@@ -78,7 +82,10 @@ controller_server:
       use_path_orientations: false
 
       desired_linear_vel: 0.16
-      lookahead_time: 1.5
+      # At 0.16 m/s, 3 s gives a 0.48 m carrot instead of the former 0.25 m.
+      # The longer preview prevents RPP from reversing its correction before
+      # Bagheera's measured steering response has settled.
+      lookahead_time: 3.0
       transform_tolerance: 0.30
       use_velocity_scaled_lookahead_dist: true
       min_approach_linear_velocity: 0.05
@@ -101,9 +108,9 @@ controller_server:
       use_interpolation: true
 
       # Calmer arc steering on straights and in curves.
-      lookahead_dist: 0.40
-      min_lookahead_dist: 0.25
-      max_lookahead_dist: 0.55
+      lookahead_dist: 0.55
+      min_lookahead_dist: 0.45
+      max_lookahead_dist: 0.75
 
 local_costmap:
   local_costmap:
@@ -156,7 +163,7 @@ local_costmap:
         plugin: nav2_costmap_2d::KeepoutFilter
         enabled: true
         filter_info_topic: /costmap_filter_info
-      always_send_full_costmap: true
+      always_send_full_costmap: false
       service_introspection_mode: disabled
 
 global_costmap:
@@ -214,12 +221,13 @@ global_costmap:
         plugin: nav2_costmap_2d::KeepoutFilter
         enabled: true
         filter_info_topic: /costmap_filter_info
-      always_send_full_costmap: true
+      always_send_full_costmap: false
       service_introspection_mode: disabled
 
 planner_server:
   ros__parameters:
     use_sim_time: false
+    bond_heartbeat_period: 1.0
     expected_planner_frequency: 2.0
     costmap_update_timeout: 1.0
     planner_plugins: ["GridBased"]
@@ -233,6 +241,7 @@ planner_server:
 behavior_server:
   ros__parameters:
     use_sim_time: false
+    bond_heartbeat_period: 1.0
     enable_stamped_cmd_vel: true
     local_costmap_topic: local_costmap/costmap_raw
     global_costmap_topic: global_costmap/costmap_raw
@@ -252,19 +261,20 @@ behavior_server:
     robot_base_frame: base_link
     transform_tolerance: 0.30
     simulate_ahead_time: 1.5
-    max_rotational_vel: 0.50
+    max_rotational_vel: 0.30
     min_rotational_vel: 0.10
     rotational_acc_lim: 2.0
 
 velocity_smoother:
   ros__parameters:
     use_sim_time: false
+    bond_heartbeat_period: 1.0
     enable_stamped_cmd_vel: true
     smoothing_frequency: 20.0
     scale_velocities: false
     feedback: OPEN_LOOP
-    max_velocity: [0.16, 0.0, 0.50]
-    min_velocity: [-0.08, 0.0, -0.50]
+    max_velocity: [0.16, 0.0, 0.30]
+    min_velocity: [-0.08, 0.0, -0.30]
     max_accel: [0.25, 0.0, 2.00]
     max_decel: [-0.35, 0.0, -2.50]
     odom_topic: /odometry/filtered
@@ -301,6 +311,7 @@ bagheera_autonomy_dock_guard:
 keepout_filter_mask_server:
   ros__parameters:
     use_sim_time: false
+    bond_heartbeat_period: 1.0
     yaml_filename: /bagheera_ws/maps/keepout_mask.yaml
     topic_name: /keepout_filter_mask
     frame_id: map
@@ -308,6 +319,7 @@ keepout_filter_mask_server:
 localization_exclusion_mask_server:
   ros__parameters:
     use_sim_time: false
+    bond_heartbeat_period: 1.0
     yaml_filename: /bagheera_ws/maps/localization_exclusion_mask.yaml
     topic_name: /localization_exclusion_mask
     frame_id: map
@@ -315,6 +327,7 @@ localization_exclusion_mask_server:
 costmap_filter_info_server:
   ros__parameters:
     use_sim_time: false
+    bond_heartbeat_period: 1.0
     type: 0
     filter_info_topic: /costmap_filter_info
     mask_topic: /keepout_filter_mask_live

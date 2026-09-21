@@ -11,6 +11,7 @@ STANDARD_GRAVITY = 9.80665
 ACCEL_FULL_SCALE_G = 16.0
 GYRO_FULL_SCALE_DPS = 2000.0
 MOTION_REGISTER = 0x34
+INERTIAL_BLOCK_LENGTH = 12
 MOTION_BLOCK_LENGTH = 18
 MAG_SENSOR_REGISTER = 0x72
 
@@ -35,19 +36,20 @@ class MotionSample:
 
 
 def decode_motion_block(data: bytes | bytearray | list[int]) -> MotionSample:
-    """Decode AX..HZ; the first six signed little-endian words are motion."""
-    if len(data) != MOTION_BLOCK_LENGTH:
+    """Decode AX..GZ and, when present, HX..HZ."""
+    if len(data) not in (INERTIAL_BLOCK_LENGTH, MOTION_BLOCK_LENGTH):
         raise ValueError(
-            f"WT901 motion block must contain {MOTION_BLOCK_LENGTH} bytes, "
+            "WT901 motion block must contain "
+            f"{INERTIAL_BLOCK_LENGTH} or {MOTION_BLOCK_LENGTH} bytes, "
             f"got {len(data)}"
         )
-    words = struct.unpack("<9h", bytes(data))
+    words = struct.unpack(f"<{len(data) // 2}h", bytes(data))
     acceleration_scale = ACCEL_FULL_SCALE_G * STANDARD_GRAVITY / 32768.0
     gyro_scale = GYRO_FULL_SCALE_DPS * math.pi / (180.0 * 32768.0)
     return MotionSample(
         acceleration=tuple(value * acceleration_scale for value in words[0:3]),
         angular_velocity=tuple(value * gyro_scale for value in words[3:6]),
-        magnetic_raw=tuple(words[6:9]),
+        magnetic_raw=tuple(words[6:9]) if len(words) == 9 else (0, 0, 0),
     )
 
 

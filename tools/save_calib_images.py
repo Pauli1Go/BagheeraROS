@@ -39,12 +39,17 @@ class Saver(Node):
         now = time.monotonic()
         if now - self._last < self._interval or self._count >= self._max_images:
             return
-        if msg.encoding != "bgr8":
+        if msg.encoding == "mono8":
+            frame = np.frombuffer(msg.data, dtype=np.uint8).reshape(
+                msg.height, msg.width
+            )
+        elif msg.encoding == "bgr8":
+            frame = np.frombuffer(msg.data, dtype=np.uint8).reshape(
+                msg.height, msg.width, 3
+            )
+        else:
             self.get_logger().warn(f"unexpected encoding {msg.encoding}, skipping")
             return
-        frame = np.frombuffer(msg.data, dtype=np.uint8).reshape(
-            msg.height, msg.width, 3
-        )
         path = os.path.join(self._outdir, f"img_{self._count:03d}.png")
         cv2.imwrite(path, frame)
         self._count += 1

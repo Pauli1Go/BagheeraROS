@@ -13,6 +13,8 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Bool
 
+from .command_gate import StopCommandGate
+
 
 def _normalize_angle(angle: float) -> float:
     return math.atan2(math.sin(angle), math.cos(angle))
@@ -111,6 +113,7 @@ class AutonomyDockGuard(Node):
         self._last_yaw = 0.0
         self._turn_progress = 0.0
         self._localization_violation = False
+        self._output_gate = StopCommandGate()
 
         input_topic = str(self.get_parameter("input_topic").value)
         output_topic = str(self.get_parameter("output_topic").value)
@@ -206,13 +209,23 @@ class AutonomyDockGuard(Node):
     def _odom_is_fresh(self, now: float) -> bool:
         return self._odom is not None and now - self._odom_time <= 0.5
 
-    def _publish(self, linear: float = 0.0, angular: float = 0.0) -> None:
-        message = TwistStamped()
+    def _publish_message(self, message: TwistStamped, *, force: bool = False) -> None:
+        twist = message.twist
+        if not force and not self._output_gate.should_publish(
+            twist.linear.x, twist.angular.z
+        ):
+            return
         message.header.stamp = self.get_clock().now().to_msg()
         message.header.frame_id = "base_link"
+        self._publisher.publish(message)
+
+    def _publish(
+        self, linear: float = 0.0, angular: float = 0.0, *, force: bool = False
+    ) -> None:
+        message = TwistStamped()
         message.twist.linear.x = linear
         message.twist.angular.z = angular
-        self._publisher.publish(message)
+        self._publish_message(message, force=force)
 
     def _start_reverse(self, now: float) -> None:
         assert self._odom is not None
@@ -280,8 +293,7 @@ class AutonomyDockGuard(Node):
             if self._last_command is not None and (
                 now - self._last_command_time <= self._command_timeout
             ):
-                self._last_command.header.stamp = self.get_clock().now().to_msg()
-                self._publisher.publish(self._last_command)
+                self._publish_message(self._last_command)
             else:
                 self._publish()
             return
@@ -380,7 +392,7 @@ def main(args=None) -> None:
     except KeyboardInterrupt:
         pass
     finally:
-        node._publish()
+        node._publish(force=True)
         node.destroy_node()
         rclpy.try_shutdown()
 

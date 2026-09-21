@@ -69,6 +69,7 @@ def generate_launch_description():
     use_lidar = LaunchConfiguration("use_lidar")
     use_optical_flow = LaunchConfiguration("use_optical_flow")
     use_wt901 = LaunchConfiguration("use_wt901")
+    use_compass = LaunchConfiguration("use_compass")
     use_camera = LaunchConfiguration("use_camera")
     use_sensor_fusion = LaunchConfiguration("use_sensor_fusion")
     use_map_localization = LaunchConfiguration("use_map_localization")
@@ -84,6 +85,7 @@ def generate_launch_description():
         DeclareLaunchArgument("use_lidar", default_value="true"),
         DeclareLaunchArgument("use_optical_flow", default_value="true"),
         DeclareLaunchArgument("use_wt901", default_value="true"),
+        DeclareLaunchArgument("use_compass", default_value="false"),
         DeclareLaunchArgument("use_camera", default_value="true"),
         DeclareLaunchArgument("use_sensor_fusion", default_value="true"),
         DeclareLaunchArgument("use_map_localization", default_value="true"),
@@ -186,7 +188,14 @@ def generate_launch_description():
         executable="bagheera_wt901",
         name="bagheera_wt901",
         output="screen",
-        parameters=[sensor_config],
+        parameters=[
+            sensor_config,
+            {
+                "publish_magnetometer": ParameterValue(
+                    use_compass, value_type=bool
+                )
+            },
+        ],
         condition=IfCondition(use_wt901),
     )
     compass = Node(
@@ -195,7 +204,7 @@ def generate_launch_description():
         name="bagheera_compass",
         output="screen",
         parameters=[sensor_config],
-        condition=IfCondition(use_wt901),
+        condition=IfCondition(use_compass),
     )
     camera = Node(
         package="camera_ros",
@@ -251,7 +260,8 @@ def generate_launch_description():
                     LaunchConfiguration("foxglove_port"), value_type=int
                 ),
                 "send_buffer_limit": 10_000_000,
-                "num_threads": 0,
+                "num_threads": 2,
+                "capabilities": ["clientPublish", "connectionGraph"],
             }
         ],
         condition=IfCondition(use_foxglove),
