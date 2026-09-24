@@ -1,0 +1,35 @@
+diff --git a/src/ParameterHandler.cpp b/src/ParameterHandler.cpp
+--- a/src/ParameterHandler.cpp
++++ b/src/ParameterHandler.cpp
+@@ -308,24 +308,11 @@ ParameterHandler::PostSetApply(const std::vector<rclcpp::Parameter> &parameters)
+ {
+   control_values_lock.lock();
+-
++
+-  // New parameter/control values are only applied when the next request callback
+-  // is called. When the parameter callback is called more than once in between
+-  // request callbacks, we will ignore the previous parameters and only ever apply
+-  // the most recent parameter values supplied before the next request callback.
+-
+-  // If previous parameters have not been applied yet, clear the old parameters
+-  // and inform the user about it.
+-  if (!control_values.empty()) {
+-    std::string cv_list;
+-    for (const auto &[id, cv] : control_values) {
+-      cv_list += "  " + libcamera::controls::controls.at(id)->name() + ": " + cv.toString() + '\n';
+-    }
+-    RCLCPP_WARN_STREAM(node->get_logger(),
+-                       "previous parameters have note been apllied yet and will be ignored:"
+-                         << std::endl
+-                         << cv_list);
+-    control_values.clear();
+-  }
++  // Controls are applied with the next camera request. Parameter callbacks can
++  // run more than once before that first request, especially while startup YAML
++  // overrides are declared. Merge those batches instead of discarding the
++  // earlier controls; ControlList::set still gives the newest value precedence
++  // when the same control occurs again.
+-
++
+   for (const rclcpp::Parameter &parameter : parameters) {
+     // filter parameters that are not camera controls

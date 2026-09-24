@@ -161,5 +161,9 @@ camera:
     orientation: 180
     frame_id: camera_optical_frame
     use_node_time: false
+    # Ignore bright sunlight near the dock tags and expose the central docking
+    # area one stop brighter. Keep AE enabled so changing daylight is handled.
+    AeMeteringMode: 1
+    ExposureValue: 1.0
     AwbEnable: true
     AwbMode: 0
