@@ -7,12 +7,13 @@
 <!-- A blocked path or "collision ahead" is usually temporary in the office
      (people, chairs) or a turn blocked by the long nose. Recoveries cycle
      through a quick clear/replan, a collision-checked 20 cm BackUp and a
-     20 s wait before clearing and replanning, for up to 30 retries before
-     the goal is aborted. No spin recovery; RPP may still align to the path
+     20 s wait before clearing and replanning. Only 2 retries (user choice,
+     2026-09-24), so a goal aborts after clear/replan and BackUp; the 20 s
+     wait is only reached if the retries are raised again. No spin recovery; RPP may still align to the path
      or final heading. -->
 <root BTCPP_format="4" main_tree_to_execute="MainTree">
   <BehaviorTree ID="MainTree">
-    <RecoveryNode number_of_retries="30" name="NavigateRecovery">
+    <RecoveryNode number_of_retries="2" name="NavigateRecovery">
       <PipelineSequence name="NavigateWithReplanning">
         <RateController hz="1.0">
           <!-- Replan every second against the current global costmap. A path

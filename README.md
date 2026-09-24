@@ -174,8 +174,9 @@ The installed `behavior_trees/navigate_no_spin.xml` is selected through
 "collision ahead" is treated as temporary: recoveries cycle through a quick
 clear-both-costmaps + replan, a collision-checked 20 cm BackUp (a turn toward
 the path can be blocked by the 0.44 m nose while 10 cm further back it is
-free) and a 20 s wait + clear + replan, for up to 30 retries before the goal
-aborts. There is no Spin recovery. RPP turns on the spot first when the
+free) and a 20 s wait + clear + replan. Only 2 retries are allowed, so a goal
+aborts after the clear/replan and the BackUp; the 20 s wait is only reached
+with more retries. There is no Spin recovery. RPP turns on the spot first when the
 carrot is more than 20 degrees off (`rotate_to_heading_min_angle` 0.35 rad);
 at 0.50 rad a long straight test arc clipped door frames from standstill.
 
