@@ -16,3 +16,26 @@ class StopCommandGate:
             return False
         self._stopped = stopped
         return True
+
+
+class ProgressWatchdog:
+    """Detect a stall: less than min_progress within any window_s."""
+
+    def __init__(self, window_s: float, min_progress: float) -> None:
+        self._window = window_s
+        self._min_progress = min_progress
+        self._window_start = 0.0
+        self._window_progress = 0.0
+
+    def reset(self, now: float, progress: float = 0.0) -> None:
+        self._window_start = now
+        self._window_progress = progress
+
+    def stalled(self, now: float, progress: float) -> bool:
+        """Call periodically; True once a full window gained too little."""
+        if now - self._window_start < self._window:
+            return False
+        if progress - self._window_progress < self._min_progress:
+            return True
+        self.reset(now, progress)
+        return False

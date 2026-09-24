@@ -319,7 +319,11 @@ bagheera_autonomy_dock_guard:
     command_timeout_s: 0.5
     reverse_distance_m: 0.80
     reverse_speed_mps: 0.08
-    reverse_timeout_s: 18.0
+    # A fixed 18 s limit aborted a slow (0.045 m/s) but steady undock on
+    # 2026-09-24. Now: abort when the path gains < 5 cm in 5 s; 60 s backstop.
+    reverse_timeout_s: 60.0
+    reverse_stall_window_s: 5.0
+    reverse_stall_min_progress_m: 0.05
     reverse_heading_kp: 1.5
     reverse_cross_track_kp: 1.0
     reverse_max_angular_rps: 0.25

@@ -13,7 +13,7 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Bool, String
 
-from .command_gate import StopCommandGate
+from .command_gate import ProgressWatchdog, StopCommandGate
 
 
 def _normalize_angle(angle: float) -> float:
@@ -50,7 +50,11 @@ class AutonomyDockGuard(Node):
         self.declare_parameter("command_timeout_s", 0.5)
         self.declare_parameter("reverse_distance_m", 0.80)
         self.declare_parameter("reverse_speed_mps", 0.08)
-        self.declare_parameter("reverse_timeout_s", 18.0)
+        # Slow but steady reversing is fine; abort only on a stall, with a
+        # generous overall limit as a backstop.
+        self.declare_parameter("reverse_timeout_s", 60.0)
+        self.declare_parameter("reverse_stall_window_s", 5.0)
+        self.declare_parameter("reverse_stall_min_progress_m", 0.05)
         self.declare_parameter("reverse_heading_kp", 1.5)
         self.declare_parameter("reverse_cross_track_kp", 1.0)
         self.declare_parameter("reverse_max_angular_rps", 0.25)
@@ -78,6 +82,10 @@ class AutonomyDockGuard(Node):
         self._reverse_speed = float(self.get_parameter("reverse_speed_mps").value)
         self._reverse_timeout = float(
             self.get_parameter("reverse_timeout_s").value
+        )
+        self._reverse_watchdog = ProgressWatchdog(
+            float(self.get_parameter("reverse_stall_window_s").value),
+            float(self.get_parameter("reverse_stall_min_progress_m").value),
         )
         self._reverse_heading_kp = float(
             self.get_parameter("reverse_heading_kp").value
@@ -297,6 +305,7 @@ class AutonomyDockGuard(Node):
         self._reverse_last_x = pose.position.x
         self._reverse_last_y = pose.position.y
         self._phase_started = now
+        self._reverse_watchdog.reset(now)
         self._state = "REVERSING"
         self._active_timer.reset()
         self.get_logger().info(
@@ -388,14 +397,23 @@ class AutonomyDockGuard(Node):
 
         if self._state == "REVERSING":
             if now - self._phase_started > self._reverse_timeout:
-                self._fail("reverse timeout")
+                self._fail(
+                    "reverse timeout after %.2f m" % self._reverse_progress()
+                )
+                return
+            if self._reverse_watchdog.stalled(now, self._reverse_progress()):
+                self._fail(
+                    "reverse stalled at %.2f m" % self._reverse_progress()
+                )
                 return
             if self._reverse_progress() >= self._reverse_distance:
                 heading_error, cross_track = self._reverse_errors()
                 self.get_logger().info(
-                    "Reverse result: path %.3f m, lateral %+.3f m, yaw drift %+.1f deg"
+                    "Reverse result: path %.3f m in %.1f s, lateral %+.3f m, "
+                    "yaw drift %+.1f deg"
                     % (
                         self._reverse_progress(),
+                        now - self._phase_started,
                         cross_track,
                         -math.degrees(heading_error),
                     )
