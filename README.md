@@ -76,6 +76,9 @@ The launch starts:
 - `bagheera_manual_mode`
 - `bagheera_controller`
 - measurement normalization (`/wheel_odom`, `/imu/data`, camera metadata)
+- battery monitor (`/battery/voltage`, `/battery/percentage`, latched
+  `/battery/level`: NORMAL/LOW/CRITICAL/FULL from the averaged, offset-corrected
+  pack voltage; reporting only, no automatic return to the dock yet)
 - `robot_localization` EKF (`/odometry/filtered`, `odom -> base_link`)
 - YDLidar G2 driver (`/scan`)
 - PMW3901 optical-flow driver (`/optical_flow/raw`, `/optical_flow/twist`)

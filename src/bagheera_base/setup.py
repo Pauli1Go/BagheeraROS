@@ -45,6 +45,7 @@ setup(
             "bagheera_dock_frame_gate = bagheera_base.dock_frame_gate:main",
             "bagheera_camera_manager = bagheera_base.camera_manager:main",
             "bagheera_dock_sleep = bagheera_base.dock_sleep:main",
+            "bagheera_battery_monitor = bagheera_base.battery_monitor:main",
             "bagheera_pose_persistence = bagheera_base.pose_persistence:main",
             "bagheera_localization_exclusion_guard = bagheera_base.localization_exclusion_guard:main",
             "bagheera_keepout_mask_relay = bagheera_base.keepout_mask_relay:main",

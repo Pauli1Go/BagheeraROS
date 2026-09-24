@@ -205,6 +205,14 @@ def generate_launch_description():
             },
         ],
     )
+    # Averaged battery voltage, percentage and NORMAL/LOW/CRITICAL/FULL level.
+    battery_monitor = Node(
+        package="bagheera_base",
+        executable="bagheera_battery_monitor",
+        name="bagheera_battery_monitor",
+        output="screen",
+        parameters=[base_config],
+    )
     optical_flow = Node(
         package="bagheera_base",
         executable="bagheera_optical_flow",
@@ -340,6 +348,7 @@ def generate_launch_description():
             controller,
             measurement_normalizer,
             dock_sleep,
+            battery_monitor,
             optical_flow,
             wt901,
             compass,
