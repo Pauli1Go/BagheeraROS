@@ -30,6 +30,25 @@ ydlidar_ros2_driver_node:
     invalid_range_is_inf: true
     debug: false
 
+bagheera_dock_sleep:
+  ros__parameters:
+    # Docked (debounced 10 V charge voltage) without any motion command for
+    # this long: LiDAR (driver process stopped), WT901 polling, PMW3901
+    # (shutdown, LED off) and camera sleep.
+    sleep_delay_s: 3.0
+    # After a wake-up stay awake at least this long, so a held goal or the
+    # teleop driver can leave the dock before the 3 s idle rule applies.
+    wake_grace_s: 30.0
+    lidar_executable: /bagheera_ws/install/lib/ydlidar_ros2_driver/ydlidar_ros2_driver_node
+    lidar_parameters: /bagheera_ws/install/share/bagheera_base/config/sensors.yaml
+    # Wake-up is done once /scan runs at >= 8 Hz for 2 s, the WT901 has
+    # re-measured its bias (200 samples, 4 s) and the flow sensor reports.
+    scan_window_s: 2.0
+    scan_min_rate_hz: 8.0
+    sensor_timeout_s: 30.0
+    ekf_settle_s: 0.5
+    anchor_timeout_s: 15.0
+
 bagheera_optical_flow:
   ros__parameters:
     spi_bus: 0

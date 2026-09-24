@@ -178,13 +178,32 @@ def generate_launch_description():
         parameters=[sensor_config],
     )
 
-    lidar = Node(
-        package="ydlidar_ros2_driver",
-        executable="ydlidar_ros2_driver_node",
-        name="ydlidar_ros2_driver_node",
+    # Runs the LiDAR driver as its child process and puts LiDAR, WT901,
+    # PMW3901 and camera to sleep while the robot idles in the dock.
+    dock_sleep = Node(
+        package="bagheera_base",
+        executable="bagheera_dock_sleep",
+        name="bagheera_dock_sleep",
         output="screen",
-        parameters=[sensor_config],
-        condition=IfCondition(use_lidar),
+        parameters=[
+            sensor_config,
+            {
+                "lidar_enabled": ParameterValue(use_lidar, value_type=bool),
+                "wt901_enabled": ParameterValue(use_wt901, value_type=bool),
+                "optical_flow_enabled": ParameterValue(
+                    use_optical_flow, value_type=bool
+                ),
+                "ekf_reset_enabled": ParameterValue(
+                    use_sensor_fusion, value_type=bool
+                ),
+                "anchor_enabled": ParameterValue(
+                    use_map_localization, value_type=bool
+                ),
+                "navigation_enabled": ParameterValue(
+                    use_navigation, value_type=bool
+                ),
+            },
+        ],
     )
     optical_flow = Node(
         package="bagheera_base",
@@ -320,7 +339,7 @@ def generate_launch_description():
             mode,
             controller,
             measurement_normalizer,
-            lidar,
+            dock_sleep,
             optical_flow,
             wt901,
             compass,

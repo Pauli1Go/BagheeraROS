@@ -78,6 +78,26 @@ def final_approach_command(
     return params.speed, angular, None
 
 
+@dataclass(frozen=True)
+class StagingAlign:
+    gain: float = 1.2
+    min_angular: float = 0.06
+    max_angular: float = 0.30
+    tolerance: float = math.radians(1.5)
+
+
+def staging_align_command(yaw_error: float, params: StagingAlign) -> float | None:
+    """Turn-in-place rate onto the staging yaw, or None when aligned.
+
+    yaw_error is the staging yaw minus the robot yaw. Fast while far off,
+    proportionally slower near the end, never below a rate that still turns.
+    """
+    if abs(yaw_error) <= params.tolerance:
+        return None
+    rate = min(params.max_angular, max(params.min_angular, params.gain * abs(yaw_error)))
+    return math.copysign(rate, yaw_error)
+
+
 def front_offset(left: float, yaw_error: float, params: FinalApproach) -> float:
     """Lateral offset of the charging contacts ahead of the axle."""
     return left + params.front_offset * math.sin(yaw_error)
@@ -99,6 +119,11 @@ class DockTrigger(Node):
         self.declare_parameter("final_max_yaw_rad", math.radians(10.0))
         self.declare_parameter("final_timeout_s", 8.0)
         self.declare_parameter("contact_voltage", 0.5)
+        self.declare_parameter("staging_align_gain", 1.2)
+        self.declare_parameter("staging_align_min_angular_rps", 0.06)
+        self.declare_parameter("staging_align_max_angular_rps", 0.30)
+        self.declare_parameter("staging_align_tolerance_rad", math.radians(1.5))
+        self.declare_parameter("staging_align_timeout_s", 8.0)
         self._dock_id = str(self.get_parameter("dock_id").value)
         self._max_staging_time = float(self.get_parameter("max_staging_time_s").value)
         self._final_params = FinalApproach(
@@ -114,6 +139,18 @@ class DockTrigger(Node):
         )
         self._final_timeout = float(self.get_parameter("final_timeout_s").value)
         self._contact_voltage = float(self.get_parameter("contact_voltage").value)
+        self._align_params = StagingAlign(
+            gain=float(self.get_parameter("staging_align_gain").value),
+            min_angular=float(self.get_parameter("staging_align_min_angular_rps").value),
+            max_angular=float(self.get_parameter("staging_align_max_angular_rps").value),
+            tolerance=float(self.get_parameter("staging_align_tolerance_rad").value),
+        )
+        self._align_timeout = float(self.get_parameter("staging_align_timeout_s").value)
+        # Final slow turn onto the staging yaw after Nav2's 5 deg arrival;
+        # only after the first staging drive, not after server retries.
+        self._align_active = False
+        self._align_started = 0.0
+        self._staging_pose: PoseStamped | None = None
         # None: not started in this wait-for-charge phase; "driving"; "done".
         self._final_state: str | None = None
         self._final_started = 0.0
@@ -153,6 +190,7 @@ class DockTrigger(Node):
         self.create_subscription(Bool, "/docked", self._on_docked, latched)
         self.create_subscription(TwistStamped, "/cmd_vel_teleop", self._on_teleop, 10)
         self.create_subscription(PoseStamped, "/dock_pose", self._on_dock_pose, 5)
+        self.create_subscription(PoseStamped, "/staging_pose", self._on_staging_pose, 5)
         self.create_subscription(Power, "/hardware_bridge/power", self._on_power, 10)
         self.create_subscription(String, "/dock/plugin_event", self._on_plugin_event, 10)
         self.create_timer(0.05, self._final_tick)
@@ -195,6 +233,65 @@ class DockTrigger(Node):
         self._last_event = message.data
         if message.data.startswith("PRE_DOCK_OFF_AXIS"):
             self._set_state("PRE_DOCK_OFF_AXIS", message.data + "; retrying from staging")
+
+    def _on_staging_pose(self, message: PoseStamped) -> None:
+        self._staging_pose = message
+
+    def _robot_yaw_in(self, frame: str) -> float | None:
+        try:
+            transform = self._tf.lookup_transform(frame, "base_link", Time())
+        except Exception:  # noqa: BLE001 - TF raises several exception types
+            return None
+        r = transform.transform.rotation
+        return math.atan2(2.0 * (r.w * r.z + r.x * r.y), 1.0 - 2.0 * (r.y * r.y + r.z * r.z))
+
+    def _staging_yaw_error(self) -> float | None:
+        staging = self._staging_pose
+        if staging is None:
+            return None
+        robot_yaw = self._robot_yaw_in(staging.header.frame_id)
+        if robot_yaw is None:
+            return None
+        q = staging.pose.orientation
+        target = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+        return math.atan2(math.sin(target - robot_yaw), math.cos(target - robot_yaw))
+
+    def _start_staging_align(self) -> None:
+        error = self._staging_yaw_error()
+        if error is None:
+            self.get_logger().warn("Staging align skipped: no staging pose or TF")
+            return
+        self._align_active = True
+        self._align_started = time.monotonic()
+        self._set_state("STAGING_ALIGN", "turning %+.1f deg onto the staging heading"
+                        % math.degrees(error))
+
+    def _stop_staging_align(self, reason: str) -> None:
+        if not self._align_active:
+            return
+        self._align_active = False
+        self._publish_docking_velocity()
+        error = self._staging_yaw_error()
+        rest = " (%+.1f deg left)" % math.degrees(error) if error is not None else ""
+        self.get_logger().info(f"Staging align finished: {reason}{rest}")
+        if self._state == "STAGING_ALIGN":
+            self._set_state("INITIAL_PERCEPTION", f"staging align {reason}{rest}")
+
+    def _staging_align_tick(self) -> None:
+        if not self._align_active:
+            return
+        if time.monotonic() - self._align_started > self._align_timeout:
+            self._stop_staging_align("timed out")
+            return
+        error = self._staging_yaw_error()
+        if error is None:
+            self._stop_staging_align("lost the pose")
+            return
+        rate = staging_align_command(error, self._align_params)
+        if rate is None:
+            self._stop_staging_align("aligned")
+            return
+        self._publish_docking_velocity(0.0, rate)
 
     def _on_dock_pose(self, message: PoseStamped) -> None:
         self._dock_pose = message
@@ -259,6 +356,7 @@ class DockTrigger(Node):
         self._set_state("FINAL_APPROACH", detail)
 
     def _final_tick(self) -> None:
+        self._staging_align_tick()
         if self._final_state == "done" and self._state in ("WAIT_FOR_CHARGE", "PRE_DOCK_OFF_AXIS"):
             self._publish_docking_velocity()
             return
@@ -341,6 +439,14 @@ class DockTrigger(Node):
             self._retries = int(feedback.num_retries)
             self._elapsed_s = int(feedback.docking_time.sec)
             self._set_camera(state in CAMERA_STATES)
+            if state == "INITIAL_PERCEPTION" and self._state == "NAV_TO_STAGING_POSE":
+                # Nav2 just arrived within 5 deg. The server only waits for the
+                # camera now; turn the last degrees slowly before it drives.
+                self._start_staging_align()
+            elif state != "INITIAL_PERCEPTION" and self._align_active:
+                self._stop_staging_align(f"docking server moved on to {state}")
+            if self._align_active:
+                return
             if state == "WAIT_FOR_CHARGE":
                 if self._final_state is None:
                     self._start_final_approach()
@@ -375,6 +481,7 @@ class DockTrigger(Node):
             self._finish("FAILED", f"{self._action}: {message}")
 
     def _finish(self, state: str, detail: str) -> None:
+        self._stop_staging_align(f"docking {state.lower()}")
         if self._final_state == "driving":
             self._stop_final(f"docking {state.lower()}")
         self._final_state = None

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import time
 
 from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import PoseStamped
@@ -11,6 +12,7 @@ import rclpy
 from rclpy.action import ActionClient
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from std_msgs.msg import Bool, String
 
 
 DEFAULT_FOOTPRINT = "[[0.4434, 0.18], [0.4434, -0.18], [-0.0866, -0.18], [-0.0866, 0.18]]"
@@ -100,6 +102,13 @@ class GoalPoseBridge(Node):
         self._cancel_in_progress = False
         self._pending_pose: PoseStamped | None = None
         self._keepout_mask: OccupancyGrid | None = None
+        # While bagheera_dock_sleep has the LiDAR off, AMCL publishes no
+        # map -> odom and bt_navigator aborts at once ("Initial robot pose is
+        # not available"). Hold the goal, wake the robot, forward when awake.
+        self._sleep_state = "awake"
+        self._held_pose: PoseStamped | None = None
+        self._held_since = 0.0
+        self._wake_publisher = self.create_publisher(Bool, "/dock/wake", 10)
         self.create_subscription(PoseStamped, "/goal_pose", self._on_pose, 10)
         self.create_subscription(
             PoseStamped, "/move_base_simple/goal", self._on_pose, 10
@@ -114,9 +123,28 @@ class GoalPoseBridge(Node):
             mask_qos,
         )
         self.create_subscription(OccupancyGrid, "/map", self._on_map, mask_qos)
+        self.create_subscription(String, "/dock/sleep_state", self._on_sleep_state, mask_qos)
+        self.create_timer(1.0, self._check_held_goal)
         self.get_logger().info(
             "Foxglove goals accepted on /goal_pose and /move_base_simple/goal"
         )
+
+    def _on_sleep_state(self, message: String) -> None:
+        self._sleep_state = message.data
+        pose = self._held_pose
+        if pose is None:
+            return
+        if self._sleep_state == "awake":
+            self._held_pose = None
+            self._forward(pose)
+        elif self._sleep_state == "fault":
+            self._held_pose = None
+            self.get_logger().error("Dropping held goal: dock wake-up failed")
+
+    def _check_held_goal(self) -> None:
+        if self._held_pose is not None and time.monotonic() - self._held_since > 60.0:
+            self._held_pose = None
+            self.get_logger().error("Dropping held goal: dock wake-up took over 60 s")
 
     def _on_keepout_mask(self, message: OccupancyGrid) -> None:
         self._keepout_mask = message
@@ -181,10 +209,24 @@ class GoalPoseBridge(Node):
                        name, hit[0], hit[1])
                 )
                 return
+        if self._sleep_state in ("sleeping", "waking", "anchoring"):
+            self._held_pose = pose
+            self._held_since = time.monotonic()
+            self._wake_publisher.publish(Bool(data=True))
+            self.get_logger().info(
+                "Holding goal at (%.2f, %.2f, %.0f deg) until the dock wake-up is done (%s)"
+                % (pose.pose.position.x, pose.pose.position.y, math.degrees(yaw),
+                   self._sleep_state)
+            )
+            return
+        self._forward(pose)
+
+    def _forward(self, pose: PoseStamped) -> None:
         if not self._client.wait_for_server(timeout_sec=0.0):
             self.get_logger().error("Nav2 /navigate_to_pose action is not available")
             return
 
+        yaw = _yaw(pose.pose.orientation)
         self.get_logger().info(
             "Forwarding valid goal at (%.2f, %.2f, %.0f deg)"
             % (pose.pose.position.x, pose.pose.position.y, math.degrees(yaw))

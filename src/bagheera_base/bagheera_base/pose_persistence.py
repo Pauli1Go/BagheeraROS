@@ -1,4 +1,10 @@
-"""Persist the last map pose and anchor AMCL to the measured dock pose."""
+"""Persist the last map pose and anchor AMCL to the measured dock pose.
+
+The pose is sampled from TF map -> base_link (AMCL corrected by odometry)
+once per second and on shutdown. /amcl_pose alone is not enough: AMCL only
+publishes after 10 cm or ~6 deg of motion, so the final turn before a stop was
+often never saved, and a restart then restored a heading 40 deg off.
+"""
 
 from __future__ import annotations
 
@@ -14,7 +20,9 @@ from nav_msgs.msg import Odometry
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
-from std_msgs.msg import Bool
+from rclpy.time import Time
+from std_msgs.msg import Bool, UInt32
+from tf2_ros import Buffer, TransformException, TransformListener
 import yaml
 
 
@@ -36,7 +44,13 @@ class PosePersistence(Node):
         self.declare_parameter("map_file", "/bagheera_ws/maps/current.yaml")
         self.declare_parameter("dock_x", 1.192)
         self.declare_parameter("dock_y", 1.884)
-        self.declare_parameter("dock_yaw", 1.527)
+        self.declare_parameter("dock_yaw", 1.624)
+        self.declare_parameter("save_min_distance_m", 0.02)
+        self.declare_parameter("save_min_angle_rad", math.radians(1.0))
+        self._save_min_distance = float(self.get_parameter("save_min_distance_m").value)
+        self._save_min_angle = float(self.get_parameter("save_min_angle_rad").value)
+        self._tf = Buffer()
+        self._tf_listener = TransformListener(self._tf, self)
         self._path = Path(str(self.get_parameter("pose_file").value))
         self._map_file = Path(str(self.get_parameter("map_file").value))
         self._dock_pose = (
@@ -54,6 +68,9 @@ class PosePersistence(Node):
         self._last_save = 0.0
         self._last_good: tuple[float, float, float] | None = None
         self._last_good_odom: tuple[float, float, float] | None = None
+        self._jump_since: float | None = None
+        self._anchor_request: int | None = None
+        self._anchor_handled: int | None = None
         self._odom: tuple[float, float, float] | None = None
 
         dock_qos = QoSProfile(
@@ -65,6 +82,13 @@ class PosePersistence(Node):
             PoseWithCovarianceStamped, "/initialpose", 10
         )
         self.create_subscription(Bool, "/docked", self._on_docked, dock_qos)
+        # bagheera_dock_sleep asks for a fresh dock anchor before undocking.
+        self._anchored_publisher = self.create_publisher(
+            UInt32, "/dock/pose_anchored", dock_qos
+        )
+        self.create_subscription(
+            UInt32, "/dock/anchor_request", self._on_anchor_request, dock_qos
+        )
         self.create_subscription(
             PoseWithCovarianceStamped, "/amcl_pose", self._on_amcl_pose, 10
         )
@@ -172,6 +196,15 @@ class PosePersistence(Node):
         else:
             self.get_logger().info("Undocked: following AMCL and saving map pose")
 
+    def _on_anchor_request(self, message: UInt32) -> None:
+        if message.data == self._anchor_handled or not self._dock_state:
+            return
+        self._anchor_handled = message.data
+        self._anchor_request = message.data
+        self._dock_pose_confirmed = False
+        self._publish_initialpose(self._dock_pose)
+        self.get_logger().info("Re-anchoring AMCL to the dock pose before undocking")
+
     def _on_odom(self, message: Odometry) -> None:
         pose = message.pose.pose
         self._odom = (pose.position.x, pose.position.y, _yaw(pose.orientation))
@@ -206,6 +239,12 @@ class PosePersistence(Node):
                 and abs(_angle_delta(candidate[2], self._dock_pose[2]))
                 <= math.radians(3.0)
             )
+            # AMCL answers /initialpose with a pose stamped at its last scan,
+            # i.e. before the request; only the arrival order is meaningful.
+            if self._anchor_request is not None and self._dock_pose_confirmed:
+                self._anchored_publisher.publish(UInt32(data=self._anchor_request))
+                self._anchor_request = None
+                self.get_logger().info("AMCL confirmed the dock pose")
             return
         if self._dock_state is None:
             return
@@ -220,6 +259,28 @@ class PosePersistence(Node):
                 self.get_logger().info("Saved initial pose accepted by AMCL")
             else:
                 return
+        # Restore accepted: from now on _tick samples and saves the TF pose.
+
+    def _current_map_pose(self) -> tuple[float, float, float] | None:
+        try:
+            transform = self._tf.lookup_transform("map", "base_link", Time())
+        except TransformException:
+            return None
+        stamp = transform.header.stamp
+        age = self.get_clock().now().nanoseconds * 1e-9 - (stamp.sec + stamp.nanosec * 1e-9)
+        if age > 2.0:
+            return None
+        t = transform.transform
+        pose = (t.translation.x, t.translation.y, _yaw(t.rotation))
+        return pose if all(math.isfinite(value) for value in pose) else None
+
+    def _save_current_pose(self) -> None:
+        """Save the TF map pose while undocked and not restoring."""
+        if self._dock_state is not False or self._restoring:
+            return
+        candidate = self._current_map_pose()
+        if candidate is None:
+            return
         if self._last_good is not None and self._last_good_odom is not None:
             if self._odom is None:
                 return
@@ -234,18 +295,33 @@ class PosePersistence(Node):
             odom_turn = abs(_angle_delta(self._odom[2], self._last_good_odom[2]))
             map_turn = abs(_angle_delta(candidate[2], self._last_good[2]))
             if map_travel > odom_travel + 0.50 or map_turn > odom_turn + 0.50:
-                self.get_logger().warn(
-                    "AMCL pose jump rejected for persistence (not saved)",
-                    throttle_duration_sec=5.0,
-                )
-                return
+                now = time.monotonic()
+                if self._jump_since is None:
+                    self._jump_since = now
+                if now - self._jump_since < 10.0:
+                    self.get_logger().warn(
+                        "AMCL pose jump rejected for persistence (not saved)",
+                        throttle_duration_sec=5.0,
+                    )
+                    return
+                # A correction that AMCL keeps for 10 s is a relocalization,
+                # e.g. after a wrong restored heading; persist it.
+                self.get_logger().warn("AMCL pose jump persisted for 10 s; saving it")
+        self._jump_since = None
         self._last_good = candidate
         self._last_good_odom = self._odom
-        if time.monotonic() - self._last_save >= 2.0:
+        saved = self._saved_pose
+        if (
+            saved is None
+            or math.hypot(candidate[0] - saved[0], candidate[1] - saved[1])
+            >= self._save_min_distance
+            or abs(_angle_delta(candidate[2], saved[2])) >= self._save_min_angle
+        ):
             self._save_pose(candidate)
 
     def _tick(self) -> None:
         now = time.monotonic()
+        self._save_current_pose()
         if self._dock_state is None and self._saved_pose is not None:
             if now - self._last_initialpose >= 1.0:
                 self._publish_initialpose(self._saved_pose)
@@ -271,5 +347,9 @@ def main(args=None) -> None:
     except KeyboardInterrupt:
         pass
     finally:
+        try:
+            node._save_current_pose()
+        except Exception:  # noqa: BLE001 - best effort on shutdown
+            pass
         node.destroy_node()
         rclpy.try_shutdown()

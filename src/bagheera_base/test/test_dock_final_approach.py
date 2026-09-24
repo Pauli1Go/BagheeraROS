@@ -1,7 +1,13 @@
 import math
 import unittest
 
-from bagheera_base.dock_trigger import FinalApproach, final_approach_command, front_offset
+from bagheera_base.dock_trigger import (
+    FinalApproach,
+    StagingAlign,
+    final_approach_command,
+    front_offset,
+    staging_align_command,
+)
 
 
 class FinalApproachTest(unittest.TestCase):
@@ -36,6 +42,23 @@ class FinalApproachTest(unittest.TestCase):
         self.assertAlmostEqual(
             front_offset(-0.006, math.radians(3.8), self.params), 0.025, places=3
         )
+
+
+class StagingAlignTest(unittest.TestCase):
+    def setUp(self):
+        self.params = StagingAlign()
+
+    def test_fast_when_far_slow_near_the_end(self):
+        far = staging_align_command(math.radians(90.0), self.params)
+        near = staging_align_command(math.radians(5.0), self.params)
+        last = staging_align_command(math.radians(2.0), self.params)
+        self.assertAlmostEqual(far, 0.30)
+        self.assertAlmostEqual(near, 1.2 * math.radians(5.0))
+        self.assertAlmostEqual(last, 0.06)
+
+    def test_direction_and_stop(self):
+        self.assertLess(staging_align_command(math.radians(-10.0), self.params), 0.0)
+        self.assertIsNone(staging_align_command(math.radians(1.0), self.params))
 
 
 if __name__ == "__main__":

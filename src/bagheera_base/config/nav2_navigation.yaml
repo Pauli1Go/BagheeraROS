@@ -59,6 +59,7 @@ controller_server:
     precise_goal_checker:
       plugin: nav2_controller::SimpleGoalChecker
       xy_goal_tolerance: 0.05
+      # bagheera_dock_trigger then turns the last degrees slowly (to 1.5 deg).
       yaw_goal_tolerance: 0.08726646259971647  # 5 deg
       stateful: true
     FollowPath:
@@ -117,7 +118,12 @@ controller_server:
       # yaw instead of switching back to path tracking after minor pose jitter.
       stateful: true
       allow_reversing: false
-      rotate_to_heading_min_angle: 0.50
+      # Above 20 deg to the carrot, turn on the spot first instead of an arc.
+      # At 0.50 rad a robot 27 deg off the path at a door projected a straight
+      # 0.4 m arc whose front corner touched the door frame: RPP reported
+      # "collision ahead" from standstill on every retry although the path
+      # itself kept 19 cm clearance (2026-09-24). Smaller angles keep arcs.
+      rotate_to_heading_min_angle: 0.35
       max_robot_pose_search_dist: 5.0
       use_interpolation: true
 
@@ -376,17 +382,19 @@ docking_server:
     max_retries: 2
     # Closer than this to the staging pose: start visually without Nav2.
     dock_prestaging_tolerance: 0.15
-    # Staging navigation uses the precise goal checker (5 cm / 5 deg).
+    # Staging navigation uses the precise goal checker (5 cm / 5 deg);
+    # bagheera_dock_trigger turns the final degrees slowly afterwards.
     navigator_bt_xml: /bagheera_ws/install/share/bagheera_base/behavior_trees/navigate_to_staging.xml
 
     dock_plugins: ["bagheera_dock"]
     bagheera_dock:
       plugin: bagheera_docking::TagChargingDock
       # Staging pose = robot pose measured on 2026-09-23 with both tags in
-      # view: map (1.218, 1.252, 1.607 rad), expressed relative to home_dock.
-      staging_x_offset: -0.6299
-      staging_y_offset: -0.0537
-      staging_yaw_offset: 0.0802
+      # view: map (1.218, 1.252, 1.607 rad), expressed relative to home_dock
+      # (recomputed for the corrected dock yaw; same map pose as before).
+      staging_x_offset: -0.6325
+      staging_y_offset: 0.0076
+      staging_yaw_offset: -0.0170
       # ID 1 (dock) -> base_link at electrical contact, in the dock frame.
       # x: the docked camera image shows ID 1's 26.67 mm border ~840 px wide,
       # i.e. ~3.5 cm camera depth; camera 0.4334 m ahead of base_link.
@@ -424,9 +432,10 @@ docking_server:
     home_dock:
       type: bagheera_dock
       frame: map
-      # AMCL pose measured with base_link parked in the dock. Only the
+      # AMCL position measured with base_link parked in the dock; yaw is the
+      # tag-derived dock axis (see bagheera_pose_persistence). Only the
       # staging pose is derived from it; the approach uses the tags.
-      pose: [1.192, 1.884, 1.527]
+      pose: [1.192, 1.884, 1.624]
 
     controller:
       k_phi: 3.0
@@ -530,3 +539,7 @@ bagheera_keepout_mask_relay:
   ros__parameters:
     input_topic: /keepout_filter_mask
     output_topic: /keepout_filter_mask_live
+    # Re-sent once to every new subscriber: after a boot foxglove_bridge often
+    # subscribes VOLATILE before it knows the map servers and misses their
+    # single publication.
+    repeat_topics: ["/keepout_filter_mask", "/localization_exclusion_mask"]

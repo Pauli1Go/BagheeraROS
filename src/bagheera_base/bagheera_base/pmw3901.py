@@ -15,6 +15,7 @@ REG_ID = 0x00
 REG_DATA_READY = 0x02
 REG_MOTION_BURST = 0x16
 REG_POWER_UP_RESET = 0x3A
+REG_SHUTDOWN = 0x3B
 
 
 def transform_counts(
@@ -43,6 +44,14 @@ class Pmw3901:
         self.spi.open(bus, chip_select)
         self.spi.max_speed_hz = speed_hz
         self.spi.mode = 0
+        try:
+            self.power_up()
+        except RuntimeError:
+            self.close()
+            raise
+
+    def power_up(self) -> None:
+        """Reset and initialize the sensor; this also switches its LED on."""
         self._write(REG_POWER_UP_RESET, 0x5A)
         time.sleep(0.02)
         for offset in range(5):
@@ -51,11 +60,19 @@ class Pmw3901:
         product, revision = self.identity()
         inverse = self._read(0x5F)
         if product != 0x49 or revision not in (0x00, 0x01) or inverse != 0xB6:
-            self.close()
             raise RuntimeError(
                 "Unexpected PMW3901 identity "
                 f"0x{product:02x}/0x{revision:02x}/0x{inverse:02x}"
             )
+
+    def shutdown(self) -> None:
+        """Switch the LED off and put the sensor into shutdown.
+
+        power_up() brings it back. The LED bank write is the inverse of the
+        last step of _initialize_registers().
+        """
+        self._bulk_write([0x7F, 0x14, 0x6F, 0x00, 0x7F, 0x00])
+        self._write(REG_SHUTDOWN, 0xB6)
 
     def close(self) -> None:
         """Release the SPI device."""

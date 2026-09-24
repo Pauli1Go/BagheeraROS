@@ -11,7 +11,7 @@ from nav_msgs.msg import Odometry
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 
 from .command_gate import StopCommandGate
 
@@ -121,6 +121,9 @@ class AutonomyDockGuard(Node):
         self._last_yaw = 0.0
         self._turn_progress = 0.0
         self._localization_violation = False
+        # Without bagheera_dock_sleep nothing ever sleeps: default awake.
+        self._sleep_state = "awake"
+        self._last_wake_request = 0.0
         self._output_gate = StopCommandGate()
 
         input_topic = str(self.get_parameter("input_topic").value)
@@ -135,6 +138,8 @@ class AutonomyDockGuard(Node):
         self.create_subscription(TwistStamped, input_topic, self._on_command, 10)
         self.create_subscription(Power, power_topic, self._on_power, 10)
         self.create_subscription(Odometry, odom_topic, self._on_odom, 20)
+        self._wake_publisher = self.create_publisher(Bool, "/dock/wake", 10)
+        self.create_subscription(String, "/dock/sleep_state", self._on_sleep_state, dock_qos)
         self.create_subscription(
             Bool,
             "/localization_exclusion_violation",
@@ -231,6 +236,9 @@ class AutonomyDockGuard(Node):
             self._reverse_last_y = position.y
         self._odom = message
         self._odom_time = time.monotonic()
+
+    def _on_sleep_state(self, message: String) -> None:
+        self._sleep_state = message.data
 
     def _on_localization_violation(self, message: Bool) -> None:
         self._localization_violation = message.data
@@ -353,6 +361,17 @@ class AutonomyDockGuard(Node):
         if self._state == "DOCKED_IDLE":
             self._publish()
             if not self._command_is_active(now):
+                return
+            if self._sleep_state != "awake":
+                # Sensors asleep or AMCL not yet re-anchored to the dock:
+                # wake them and hold the robot until bagheera_dock_sleep is done.
+                if now - self._last_wake_request >= 1.0:
+                    self._wake_publisher.publish(Bool(data=True))
+                    self._last_wake_request = now
+                self.get_logger().info(
+                    f"Autonomous command waits for dock wake-up ({self._sleep_state})",
+                    throttle_duration_sec=3.0,
+                )
                 return
             if not self._odom_is_fresh(now):
                 self.get_logger().warn(

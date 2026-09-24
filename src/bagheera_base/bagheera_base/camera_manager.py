@@ -11,7 +11,7 @@ from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import CompressedImage
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 
 
 VIDEO_TOPIC = "/camera/h264"
@@ -34,6 +34,7 @@ class CameraManager(Node):
         self._viewer_node = str(self.get_parameter("viewer_node").value)
         self._viewer_linger = float(self.get_parameter("viewer_linger_s").value)
         self._dock_enabled = False
+        self._sleeping = False
         self._last_viewer = float("-inf")
         self._process: subprocess.Popen | None = None
         self._last_start = 0.0
@@ -45,6 +46,7 @@ class CameraManager(Node):
         )
         self.create_subscription(Bool, "/dock/vision_enabled", self._on_dock, dock_qos)
         self.create_subscription(Bool, "/camera/stream_enabled", self._on_user, 10)
+        self.create_subscription(String, "/dock/sleep_state", self._on_sleep_state, dock_qos)
         self._active_publisher = self.create_publisher(
             Bool, "/camera/stream_active", dock_qos
         )
@@ -66,6 +68,10 @@ class CameraManager(Node):
 
     def _on_dock(self, message: Bool) -> None:
         self._dock_enabled = bool(message.data)
+        self._tick()
+
+    def _on_sleep_state(self, message: String) -> None:
+        self._sleeping = message.data == "sleeping"
         self._tick()
 
     def _on_user(self, message: Bool) -> None:
@@ -106,7 +112,8 @@ class CameraManager(Node):
             )
             if wanted
         ]
-        if not reasons:
+        if not reasons or self._sleeping:
+            # Asleep in the dock: not even a Foxglove viewer wakes the camera.
             self._stop_camera()
             return
         if self._process is not None and self._process.poll() is None:

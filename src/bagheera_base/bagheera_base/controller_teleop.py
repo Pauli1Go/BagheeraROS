@@ -12,6 +12,8 @@ import pygame
 import rclpy
 from geometry_msgs.msg import TwistStamped
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from std_msgs.msg import Bool, String
 
 from .controller_mapping import axes_to_twist
 
@@ -56,6 +58,21 @@ class ControllerTeleop(Node):
         self._last_deadman = False
         self._missing_logged = False
         self._publisher = self.create_publisher(TwistStamped, cmd_vel_topic, 10)
+        # While the dock sleep has the LiDAR off, the collision monitor is
+        # blind: the deadman button only wakes the robot until it is ready.
+        self._sleep_state = "awake"
+        self._last_wake_request = 0.0
+        self._wake_publisher = self.create_publisher(Bool, "/dock/wake", 10)
+        self.create_subscription(
+            String,
+            "/dock/sleep_state",
+            self._on_sleep_state,
+            QoSProfile(
+                depth=1,
+                reliability=ReliabilityPolicy.RELIABLE,
+                durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            ),
+        )
         self._timer = self.create_timer(1.0 / publish_rate, self._tick)
         self.get_logger().info(
             "Controller teleop ready on %s; hold button %d to drive"
@@ -118,6 +135,24 @@ class ControllerTeleop(Node):
         self.get_logger().info("Using controller: %s" % self._joystick.get_name())
         return True
 
+    def _on_sleep_state(self, message: String) -> None:
+        self._sleep_state = message.data
+
+    def _held_for_wake(self) -> bool:
+        """Request a wake-up and report whether driving must wait for it."""
+        # A fault leaves the sensors running; manual driving stays possible.
+        if self._sleep_state not in ("sleeping", "waking", "anchoring"):
+            return False
+        now = time.monotonic()
+        if now - self._last_wake_request >= 1.0:
+            self._wake_publisher.publish(Bool(data=True))
+            self._last_wake_request = now
+            self.get_logger().info(
+                "Deadman pressed while docked asleep: waking sensors (%s)"
+                % self._sleep_state
+            )
+        return True
+
     def _publish(self, linear: float, angular: float) -> None:
         message = TwistStamped()
         message.header.stamp = self.get_clock().now().to_msg()
@@ -152,7 +187,9 @@ class ControllerTeleop(Node):
                 return
 
             deadman = bool(self._joystick.get_button(self._deadman_button))
-            if deadman:
+            if deadman and self._held_for_wake():
+                self._publish(0.0, 0.0)
+            elif deadman:
                 linear, angular = axes_to_twist(
                     self._joystick.get_axis(self._throttle_axis),
                     self._joystick.get_axis(self._steering_axis),

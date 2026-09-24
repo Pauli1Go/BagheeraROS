@@ -1,9 +1,10 @@
 <?xml version="1.0"?>
 <!-- A blocked path or "collision ahead" is usually temporary in the office
-     (people, chairs). Recoveries alternate a quick clear/replan with a 20 s
-     wait before clearing and replanning, for up to ~5 minutes (30 retries)
-     before the goal is aborted. No spin and no reversing recovery; RPP may
-     still align to the path or final heading. -->
+     (people, chairs) or a turn blocked by the long nose. Recoveries cycle
+     through a quick clear/replan, a collision-checked 20 cm BackUp and a
+     20 s wait before clearing and replanning, for up to 30 retries before
+     the goal is aborted. No spin recovery; RPP may still align to the path
+     or final heading. -->
 <root BTCPP_format="4" main_tree_to_execute="MainTree">
   <BehaviorTree ID="MainTree">
     <RecoveryNode number_of_retries="30" name="NavigateRecovery">
@@ -24,6 +25,14 @@
           <ClearEntireCostmap service_name="global_costmap/clear_entirely_global_costmap" server_timeout="1000"/>
           <Wait wait_duration="0.5"/>
         </Sequence>
+        <!-- A turn toward the path can be blocked by the 0.44 m nose (e.g. a
+             door frame 25 deg into the turn, 2026-09-24) while 10 cm further
+             back it is free. BackUp checks its own path for collisions. -->
+        <Fallback name="BackUpOrSkip">
+          <BackUp backup_dist="0.20" backup_speed="0.08" time_allowance="6.0"
+            disable_collision_checks="false" error_code_id="{backup_error_code}" error_msg="{backup_error_msg}"/>
+          <Wait wait_duration="0.5"/>
+        </Fallback>
         <Sequence name="WaitThenReplan">
           <Wait wait_duration="20.0"/>
           <ClearEntireCostmap service_name="local_costmap/clear_entirely_local_costmap" server_timeout="1000"/>

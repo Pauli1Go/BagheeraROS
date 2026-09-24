@@ -97,9 +97,24 @@ is deliberately not started. `bagheera_pose_persistence` stores the most recent
 plausible AMCL map position **and heading** in `maps/last_pose.json` and restores
 it through `/initialpose` after an undocked restart. The record is rejected if
 `current.yaml` or its map image has changed. While `/docked` is true, the
-measured dock pose `(1.192, 1.884, 1.527 rad)` overrides the saved pose and
+measured dock pose `(1.192, 1.884, 1.624 rad)` overrides the saved pose and
 keeps AMCL anchored there. If the robot was physically moved while powered
 off, set `/initialpose` manually; no software can infer that displacement.
+
+`bagheera_dock_sleep` puts the sensors to sleep 3 s after docking without a
+motion command: it stops the LiDAR driver (it runs the driver as a child
+process), the WT901 stops polling, the PMW3901 goes into shutdown with its LED
+off, and the camera cannot be started, not even by a Foxglove viewer. The
+state is latched on `/dock/sleep_state` (`awake`, `sleeping`, `waking`,
+`anchoring`, `fault`). An autonomous command in the dock, the controller's
+deadman button or `/dock/wake` wakes it: LiDAR on and a steady `/scan`, WT901
+gyro bias re-measured (4 s, the robot stands still in the dock), flow sensor
+back, EKF reset at its current pose, and AMCL re-anchored to the dock pose.
+Only in `awake` does the dock guard start undocking and does teleop drive; a
+failed wake-up ends in `fault` with autonomy gated (manual driving allowed),
+and the next wake request retries. After a wake-up it stays awake for at least 30 s
+(`wake_grace_s`), so a held goal or the teleop driver can leave the dock first. `/dock/sleep_request` (`true`) sends a
+docked robot to sleep at once.
 
 The camera process is off at idle. To watch it, show `/camera/h264` in a
 Foxglove Image panel: `bagheera_camera_manager` starts the camera as soon as
@@ -153,10 +168,13 @@ plus the wait-and-replan recovery below is the preferred combination.
 
 The installed `behavior_trees/navigate_no_spin.xml` is selected through
 `default_nav_to_pose_bt_xml` using the package share path. A failed plan or
-"collision ahead" is treated as temporary: recoveries alternate a quick
-clear-both-costmaps + replan with a 20 s wait + clear + replan, for up to 30
-retries (~5 min) before the goal aborts. There is no Spin or BackUp recovery;
-normal RPP path/goal alignment can still turn the robot.
+"collision ahead" is treated as temporary: recoveries cycle through a quick
+clear-both-costmaps + replan, a collision-checked 20 cm BackUp (a turn toward
+the path can be blocked by the 0.44 m nose while 10 cm further back it is
+free) and a 20 s wait + clear + replan, for up to 30 retries before the goal
+aborts. There is no Spin recovery. RPP turns on the spot first when the
+carrot is more than 20 degrees off (`rotate_to_heading_min_angle` 0.35 rad);
+at 0.50 rad a long straight test arc clipped door frames from standstill.
 
 `bagheera_goal_pose_bridge` rejects a Foxglove goal whose *oriented* footprint
 would overlap a wall, unknown map cell or keepout cell, and logs where. Only
@@ -179,7 +197,11 @@ Docking uses Nav2's `opennav_docking` server with Bagheera's own dock plugin
    rigid offset from `home_dock` (`staging_x/y/yaw_offset`). If the robot is
    more than 15 cm away, Nav2 drives there first. That drive uses
    `behavior_trees/navigate_to_staging.xml` with a 5 cm / 5 deg goal checker
-   (normal goals keep 10 cm / 8.6 deg).
+   (normal goals keep 10 cm / 8.6 deg). While the camera starts,
+   `bagheera_dock_trigger` then turns the last degrees onto the staging
+   heading: 1.2 x the remaining angle, 0.06-0.30 rad/s, down to 1.5 deg
+   (`/dock/status` `STAGING_ALIGN`). Nav2's own turn cannot do this: its
+   braking and start-up share one acceleration.
 2. **Initial perception.** The camera is switched on only now. Two
    `tagStandard41h12` tags are used: ID 1 (48 mm printed, 26.67 mm pose edge)
    on the dock gives the dock *position*; ID 0 (160 mm printed, 88.89 mm pose

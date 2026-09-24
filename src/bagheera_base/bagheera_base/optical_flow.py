@@ -10,6 +10,7 @@ from geometry_msgs.msg import TwistWithCovarianceStamped, Vector3Stamped
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Imu
+from std_msgs.msg import String
 
 from .pmw3901 import Pmw3901, transform_counts
 
@@ -88,6 +89,11 @@ class OpticalFlowNode(Node):
         self._last_stamp_ns = self.get_clock().now().nanoseconds
         rate = float(self.get_parameter("publish_rate").value)
         self._timer = self.create_timer(1.0 / rate, self._poll)
+        self._sleeping = False
+        sleep_qos = QoSProfile(depth=1)
+        sleep_qos.reliability = ReliabilityPolicy.RELIABLE
+        sleep_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
+        self.create_subscription(String, "/dock/sleep_state", self._on_sleep_state, sleep_qos)
         self.get_logger().info(
             "PMW3901 ready on SPI%d.%d (id=0x%02x revision=0x%02x, %.6f m/count)"
             % (
@@ -102,6 +108,32 @@ class OpticalFlowNode(Node):
     def destroy_node(self):
         self._sensor.close()
         return super().destroy_node()
+
+    def _on_sleep_state(self, message: String) -> None:
+        sleeping = message.data == "sleeping"
+        if sleeping == self._sleeping:
+            return
+        if sleeping:
+            self._timer.cancel()
+            try:
+                self._sensor.shutdown()
+            except OSError as exc:
+                self.get_logger().error(f"PMW3901 shutdown failed: {exc}")
+            self._sleeping = True
+            self.get_logger().info("PMW3901 asleep (LED off) while docked")
+            return
+        try:
+            self._sensor.power_up()
+            # Drop whatever the first burst after the reset reports.
+            self._sensor.read_motion()
+        except (OSError, RuntimeError) as exc:
+            # Stay asleep; the next state message retries.
+            self.get_logger().error(f"PMW3901 wake-up failed: {exc}")
+            return
+        self._sleeping = False
+        self._last_stamp_ns = self.get_clock().now().nanoseconds
+        self._timer.reset()
+        self.get_logger().info("PMW3901 awake")
 
     def _on_imu(self, message: Imu) -> None:
         wz = message.angular_velocity.z
@@ -162,9 +194,11 @@ class OpticalFlowNode(Node):
                     now_ns - self._wz_history[-1][0] <= self._imu_max_age_ns:
                 wz = self._wz_history[-1][1]
             if wz is None:
+                # Normal for 4 s while the WT901 measures its bias.
                 self.get_logger().warning(
                     "No gyro data within %.1f s; publishing uncorrected flow"
-                    % self._imu_max_age_s
+                    % self._imu_max_age_s,
+                    throttle_duration_sec=5.0,
                 )
             else:
                 # v_flow = v_base + wz x lever_arm  =>  v_base = v_flow - wz x r

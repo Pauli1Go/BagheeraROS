@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from sensor_msgs.msg import Imu, MagneticField
+from std_msgs.msg import String
 
 try:
     import smbus
@@ -96,6 +97,7 @@ class Wt901Node(Node):
                 )
             # Validate the reported sensor type before starting the timer.
             magnetic_raw_to_tesla((0, 0, 0), self._mag_sensor_type)
+        self._calibration_samples = calibration_samples
         self._bias = GyroBiasEstimator(calibration_samples)
         self._angular_covariance = _diagonal_covariance(angular_variance)
         self._acceleration_covariance = _diagonal_covariance(acceleration_variance)
@@ -113,6 +115,13 @@ class Wt901Node(Node):
         self._consecutive_errors = 0
         self._calibration_announced = False
         self._timer = self.create_timer(1.0 / rate, self._poll)
+        self._sleeping = False
+        sleep_qos = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        self.create_subscription(String, "/dock/sleep_state", self._on_sleep_state, sleep_qos)
         self.get_logger().info(
             f"WT901 on /dev/i2c-{bus_number} address 0x{self._address:02x}; "
             f"magnetometer {'enabled' if self._publish_magnetometer else 'disabled'}"
@@ -120,6 +129,22 @@ class Wt901Node(Node):
             "keep robot still for "
             f"{calibration_samples / rate:.1f} s"
         )
+
+    def _on_sleep_state(self, message: String) -> None:
+        sleeping = message.data == "sleeping"
+        if sleeping == self._sleeping:
+            return
+        self._sleeping = sleeping
+        if sleeping:
+            self._timer.cancel()
+            self.get_logger().info("WT901 polling stopped while docked")
+            return
+        # The robot still stands in the dock: measure the gyro bias again.
+        # Nothing is published until that is done, which dock_sleep waits for.
+        self._bias = GyroBiasEstimator(self._calibration_samples)
+        self._calibration_announced = False
+        self._timer.reset()
+        self.get_logger().info("WT901 polling resumed; re-measuring gyro bias")
 
     def _poll(self) -> None:
         try:

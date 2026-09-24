@@ -83,4 +83,8 @@ bagheera_pose_persistence:
     map_file: /bagheera_ws/maps/current.yaml
     dock_x: 1.192
     dock_y: 1.884
-    dock_yaw: 1.527
+    # Tag-derived dock axis (2026-09-24). The earlier AMCL value 1.527 was
+    # ~5.5 deg off: the staging pose (1.218, 1.252) lay 5.4 cm beside that
+    # axis but lies 0.8 cm beside this one; AMCL heading at staging (1.607)
+    # plus the measured ID 0 heading offset (~1 deg) gives the same value.
+    dock_yaw: 1.624
