@@ -10,8 +10,12 @@
   <buildtool_depend>ament_python</buildtool_depend>
 
   <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>bagheera_docking</exec_depend>
   <exec_depend>action_msgs</exec_depend>
+  <exec_depend>apriltag_msgs</exec_depend>
+  <exec_depend>apriltag_ros</exec_depend>
   <exec_depend>camera_ros</exec_depend>
+  <exec_depend>compressed_image_transport</exec_depend>
   <exec_depend>python3-opencv</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
   <exec_depend>diagnostic_msgs</exec_depend>
@@ -35,8 +39,11 @@
   <exec_depend>nav2_regulated_pure_pursuit_controller</exec_depend>
   <exec_depend>nav2_rotation_shim_controller</exec_depend>
   <exec_depend>nav2_velocity_smoother</exec_depend>
+  <exec_depend>opennav_docking</exec_depend>
+  <exec_depend>rclcpp_components</exec_depend>
   <exec_depend>nav_msgs</exec_depend>
   <exec_depend>foxglove_bridge</exec_depend>
+  <exec_depend>foxglove_msgs</exec_depend>
   <exec_depend>python3-pygame</exec_depend>
   <exec_depend>python3-spidev</exec_depend>
   <exec_depend>python3-smbus</exec_depend>

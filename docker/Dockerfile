@@ -30,6 +30,12 @@ RUN git clone https://github.com/YDLIDAR/YDLidar-SDK.git /opt/ydlidar-sdk-src \
  && cmake --install /opt/ydlidar-sdk-src/build \
  && ldconfig
 
+# Needed by the camera_ros H.264 patch. A separate layer keeps the YDLidar SDK
+# build above cached.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ros-kilted-foxglove-msgs \
+ && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /bagheera_ws
 COPY docker/ydlidar-reliable-scan.patch /tmp/ydlidar-reliable-scan.patch
 COPY docker/camera-latest-frame.patch /tmp/camera-latest-frame.patch
@@ -46,6 +52,27 @@ RUN . /opt/ros/kilted/setup.sh \
  && colcon build \
       --merge-install \
       --packages-select ydlidar_ros2_driver camera_ros \
+      --cmake-args -DCMAKE_BUILD_TYPE=Release
+
+# Keep AprilTag in a separate late layer so adding or tuning docking does not
+# invalidate the expensive YDLidar SDK and camera_ros build layers.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      ros-kilted-apriltag-ros \
+      ros-kilted-compressed-image-transport \
+      ros-kilted-opennav-docking \
+      ros-kilted-opennav-docking-core \
+ && rm -rf /var/lib/apt/lists/*
+
+# The C++ dock plugin gets its own layer: Python-only changes then rebuild in
+# seconds instead of recompiling the plugin (~2 min on the Pi).
+COPY src/bagheera_docking src/bagheera_docking
+RUN . /opt/ros/kilted/setup.sh \
+ && . /ros2_ws/install/setup.sh \
+ && . /bagheera_ws/install/setup.sh \
+ && colcon build \
+      --merge-install \
+      --packages-select bagheera_docking \
       --cmake-args -DCMAKE_BUILD_TYPE=Release
 
 COPY src/bagheera_base src/bagheera_base

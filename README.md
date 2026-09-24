@@ -3,8 +3,7 @@
 ROS 2 overlay for the Bagheera office robot. MowgliNext v1.1.0 provides the
 STM32 wire protocol, hardware bridge and velocity multiplexer. This repository
 provides Bagheera's own robot model, measurement normalization, local sensor
-fusion, teleoperation and indoor LiDAR navigation. AprilTag docking remains a
-later milestone.
+fusion, teleoperation, indoor LiDAR navigation and AprilTag docking.
 
 The current platform bringup deliberately starts no GNSS, coverage or mower
 behavior. LiDAR, optical flow, the front camera, static-map localization and
@@ -81,23 +80,43 @@ The launch starts:
 - YDLidar G2 driver (`/scan`)
 - PMW3901 optical-flow driver (`/optical_flow/raw`, `/optical_flow/twist`)
 - WT901 I2C IMU driver (`/imu/wt901/data_raw`)
-- front camera driver (`/camera/image_raw`, `/camera/camera_info`)
+- on-demand front camera driver (`/camera/h264`, `/camera/image_raw/compressed`,
+  `/camera/camera_info`)
 - static map server (`/map`) and AMCL localization (`map -> odom`)
-- Nav2 planner, rotation shim, regulated-pure-pursuit controller and velocity smoother
-- bounded Clear/BackUp recovery without Spin; separate LiDAR hardstop disabled
+- composable Nav2 localization, NavFn planner, rotation shim,
+  regulated-pure-pursuit controller and velocity smoother
+- wait-and-replan recovery without Spin or BackUp; separate LiDAR hardstop
+  disabled
 - Foxglove `/goal_pose` bridge to Nav2's `NavigateToPose` action
+- Nav2 `opennav_docking` server with the Bagheera AprilTag dock plugin and a
+  Foxglove trigger
 - Foxglove bridge on `ws://bagheera.local:8765`
 
 The saved map selected by `maps/current.yaml` is loaded at boot. Online mapping
-is deliberately not started. AMCL needs an initial robot pose after startup;
-publish a `geometry_msgs/msg/PoseWithCovarianceStamped` on `/initialpose` from
-Foxglove at the robot's real position in the map. It then keeps `map -> odom`
-aligned while the robot moves.
+is deliberately not started. `bagheera_pose_persistence` stores the most recent
+plausible AMCL map position **and heading** in `maps/last_pose.json` and restores
+it through `/initialpose` after an undocked restart. The record is rejected if
+`current.yaml` or its map image has changed. While `/docked` is true, the
+measured dock pose `(1.192, 1.884, 1.527 rad)` overrides the saved pose and
+keeps AMCL anchored there. If the robot was physically moved while powered
+off, set `/initialpose` manually; no software can infer that displacement.
+
+The camera process is off at idle. To watch it, show `/camera/h264` in a
+Foxglove Image panel: `bagheera_camera_manager` starts the camera as soon as
+`foxglove_bridge` subscribes and stops it 20 s after the last viewer leaves.
+The stream is colour H.264 (1080p, 15 FPS, ~2 Mbit/s, one keyframe per second)
+from the Pi 4 hardware encoder and costs ~17 % of one CPU core. The grayscale
+JPEG topic `/camera/image_raw/compressed` is encoded in software (7.5 FPS,
+~70 % of one core) and meant for docking only. Publishing `{"data": true}` as
+`std_msgs/msg/Bool` on `/camera/stream_enabled` still keeps the camera on
+without a viewer; `/camera/stream_active` reports whether the camera process
+is running. Docking enables and disables the camera on its own.
 
 ## Navigate from Foxglove
 
-First set the approximate robot pose using the 3D panel's `2D pose estimate`
-publisher on `/initialpose`. For a driving goal, configure `2D pose` in the
+Verify that the restored pose matches the robot's real position. If it does
+not, set it with the 3D panel's `2D pose estimate` publisher on `/initialpose`.
+For a driving goal, configure `2D pose` in the
 same panel to publish `geometry_msgs/msg/PoseStamped` on `/goal_pose` (the
 legacy Foxglove default `/move_base_simple/goal` is also accepted). Click the
 target position and drag the arrow into the desired final heading. The
@@ -110,13 +129,13 @@ saved-map obstacle artifacts smaller than six connected 5 cm cells before
 adding current LiDAR obstacles. The final velocity chain is:
 
 ```text
-Nav2/RPP or BackUp -> velocity_smoother -> twist_mux -> STM32
+Nav2/RPP -> velocity_smoother -> dock guard -> twist_mux -> STM32
 controller teleop ----------------------> twist_mux -> STM32
 ```
 
 The collision monitor is not launched. Teleop bypasses all Nav2 filtering;
 firmware stop conditions and watchdog remain unchanged. Nav2 retains live
-obstacle layers, RPP collision detection and collision-checked BackUp.
+obstacle layers and RPP collision detection.
 `base_link` is the midpoint of the 0.32 m differential-drive axle. The common
 LiDAR/WT901/PMW3901 origin is approximately 0.1834 m ahead and 0.011 m left of
 it. The measured chassis bounds relative to the axle are x=[-0.0766, 0.4334]
@@ -125,16 +144,116 @@ and y=[-0.18, 0.18], incorporating the requested
 1 cm safety margin directly (`footprint_padding=0.0`). Both costmaps use
 0.25 m inflation.
 
+Because `base_link` is the rear axle, the footprint reaches 0.44 m ahead but
+only 0.09 m behind. NavFn plans for a small circle around the axle, so near
+walls RPP's footprint check can report "collision ahead". A state-lattice
+planner (Smac) was tried on 2026-09-23 and reverted: its paths turn in place
+mid-route, which RPP cannot follow, and the robot got stuck at doors. NavFn
+plus the wait-and-replan recovery below is the preferred combination.
+
 The installed `behavior_trees/navigate_no_spin.xml` is selected through
-`default_nav_to_pose_bt_xml` using the package share path. Four recovery
-attempts alternate clear-local/global + replan and BackUp + replan.
-BackUp travels 0.20 m at 0.08 m/s with a 6 s timeout. If blocked, it stops,
-waits 1 s, clears both costmaps and replans. After the bounded retries the
-goal aborts. Normal RPP path/goal alignment can still turn the robot.
+`default_nav_to_pose_bt_xml` using the package share path. A failed plan or
+"collision ahead" is treated as temporary: recoveries alternate a quick
+clear-both-costmaps + replan with a 20 s wait + clear + replan, for up to 30
+retries (~5 min) before the goal aborts. There is no Spin or BackUp recovery;
+normal RPP path/goal alignment can still turn the robot.
+
+`bagheera_goal_pose_bridge` rejects a Foxglove goal whose *oriented* footprint
+would overlap a wall, unknown map cell or keepout cell, and logs where. Only
+the final pose is checked; live obstacles are left to the wait-and-replan
+recovery.
 
 Recovery tuning does not fix the separately observed ~4.2 m AMCL error.
 Before physical goal tests, verify the initial pose and scan/map alignment;
 do not automatically restore an old pose after the robot has moved.
+
+## Dock from Foxglove
+
+Docking uses Nav2's `opennav_docking` server with Bagheera's own dock plugin
+`bagheera_docking::TagChargingDock`. Add a Publish panel for
+`std_msgs/msg/Bool` on `/dock/trigger` and publish `{"data": true}`.
+`bagheera_dock_trigger` turns this into a `DockRobot` goal for `home_dock`:
+
+1. **Staging.** The staging pose is map `(1.218, 1.252, 1.607 rad)`, about
+   0.63 m in front of the dock with both tags in view. It is configured as a
+   rigid offset from `home_dock` (`staging_x/y/yaw_offset`). If the robot is
+   more than 15 cm away, Nav2 drives there first.
+2. **Initial perception.** The camera is switched on only now. Two
+   `tagStandard41h12` tags are used: ID 1 (48 mm printed, 26.67 mm pose edge)
+   on the dock gives the dock *position*; ID 0 (160 mm printed, 88.89 mm pose
+   edge) on the wall above it gives the dock *axis angle*. At the staging pose
+   ID 1 is only ~42 px wide and its plane angle scatters by 4.4 degrees
+   (IPPE ambiguity), while ID 0 measures the angle to 0.35 degrees. Without
+   ID 0 the attempt stops instead of guessing the angle.
+3. **Approach.** Nav2's graceful docking controller converges position *and*
+   heading onto the dock axis at 0.05-0.10 m/s, with costmap collision
+   checking except for the last 15 cm in front of the dock. Its target is a
+   pre-dock pose 12 cm in front of the contact pose, so the curve is finished
+   before the charging pins (at the pins it still turned by +-14 degrees).
+4. **Straight final approach and contact.** At the pre-dock pose the server
+   waits for charge while `bagheera_dock_trigger` drives the last 12 cm
+   straight at 0.05 m/s with gyro heading hold and a trim of at most 4 degrees.
+   It stops at contact voltage (`v_charge >= 0.5 V`) or 3 cm past the contact
+   pose. The heading may still be off by up to 10 degrees at hand-over; the
+   heading hold turns it back. An axle offset over 2.5 cm cannot be fixed
+   straight: the plugin then reports the dock as lost at the pre-dock line,
+   so Nav2 retries from the staging pose immediately. Nav2's log line
+   "Made contact with dock" only means the pre-dock hand-over.
+   `/dock/status` shows `FINAL_APPROACH`, `WAIT_FOR_CHARGE` (after contact)
+   and `PRE_DOCK_OFF_AXIS` with the measured offsets. Success is `/docked`
+   (debounced 10 V) within 20 s.
+5. **Retry.** A failure drives back to the staging pose with the same
+   controller and tries again, at most twice.
+
+`bagheera_dock_tag_pose` solves both tags from the raw fisheye corners
+(apriltag_ros' own poses assume a pinhole camera and are isolated on
+`/dock/tag_tf_unused`) and publishes them in `camera_optical_frame` with the
+image stamp on `/dock/detected_pose` (ID 1) and `/dock/detected_axis`
+(ID 0). The plugin transforms them into `odom` with TF at exposure time; the
+~0.9 s AprilTag latency on the Pi therefore does not shift the target. The
+dock is static in `odom`, so the filtered pose is held when ID 0 leaves the
+image near the dock and when ID 1 disappears in the last ~4 cm before
+contact (`hold_distance` 0.30 m).
+
+The contact geometry comes from the successful manual docking recording
+`docking_record_20260921_115633`: ID 1 reaches 300 px edge at 9.9 cm camera
+depth, 4.3 cm of wheel travel before contact, so base_link sits 0.489 m
+behind ID 1 when docked. ID 0's direction plus 1.4 degrees is the robot
+heading in the dock.
+
+Display `/dock/status` for the JSON state (`NAV_TO_STAGING_POSE`,
+`INITIAL_PERCEPTION`, `CONTROLLING`, `WAIT_FOR_CHARGE`, `SUCCEEDED`,
+`FAILED` with Nav2's error message). Publish `{"data": true}` on
+`/dock/cancel` to stop. Moving the game controller also cancels docking; its
+teleop lane has priority over the docking lane anyway. Leaving the dock is
+not a separate command: `bagheera_autonomy_dock_guard` reverses out of the
+dock before any autonomous Nav2 movement. Debug poses are published on
+`/dock_pose` (refined dock), `/staging_pose` and `/docking_trajectory`; the
+docking server logs one `Dock estimate:` line per second with the fused tag
+position, axis angle and the robot's along/left/yaw offset to the dock.
+
+```bash
+docker exec -it bagheera-base bash -lc 'source /opt/ros/kilted/setup.bash && source /bagheera_ws/install/setup.bash && ros2 topic pub --once /dock/trigger std_msgs/msg/Bool "{data: true}"'
+```
+
+To calibrate the tag offsets against the real dock, start with the robot
+charging in the dock and run the tool below. It stores the docked odom pose,
+then waits while you reverse out with the game controller (it sends no
+motion command itself). Every stop with both tags in view gives a sample of
+`external_detection_translation_x/y` and `axis_yaw_offset`; Ctrl-C prints
+the averages for `nav2_navigation.yaml` and saves them under
+`/bagheera_ws/maps/dock_calibration_*.json`. Trust its lateral and yaw
+results only: the wheels slip while leaving the dock, so its `translation_x`
+is off by centimetres. The contact distance comes from the docked camera image
+instead (ID 1 ~3.5 cm in front of the camera).
+
+```bash
+docker exec -it bagheera-base bash -lc 'source /opt/ros/kilted/setup.bash && source /bagheera_ws/install/setup.bash && ros2 run bagheera_base bagheera_dock_calibrate'
+```
+
+The previous hand-written docking state machine (including the ID 1-only
+`/dock/small_trigger` mode and the stationary alignment check) is kept for
+reference under `legacy/docking/` and is no longer built or launched.
 
 For a new mapping session, stop the normal Compose service, start the base
 without static-map localization, and then start SLAM Toolbox:
@@ -329,12 +448,14 @@ PYTHONPATH=src/bagheera_base python3.11 -m unittest discover \
 2. Drive a slow closed loop, verify the WT901 yaw sign and SLAM loop closure,
    then save the first office map.
 3. Tune Nav2 goal following and collision distances in the real office.
-4. Add camera-based AprilTag docking and charging verification.
+4. Validate Nav2 AprilTag docking repeatedly from the staging pose.
 
 Autonomous velocity commands pass through `bagheera_autonomy_dock_guard`.
 When the STM32 reports at least 10 V on the charging input, `/docked` is true
 and the first non-zero autonomous command is held back while Bagheera reverses
-0.80 m and turns 90 degrees left. Teleoperation uses its separate higher-
+0.80 m and turns 90 degrees left. The guard already gates at the first contact
+voltage (0.5 V): the charger needs several seconds to reach 10 V, and Nav2
+must not move the robot inside the dock meanwhile. Teleoperation uses its separate higher-
 priority mux lane and is not gated. The map editor's `keepout_mask.yaml` is
 loaded as a Nav2 keepout costmap filter; poses inside
 `localization_exclusion_mask.yaml` are rejected and reset to the last valid

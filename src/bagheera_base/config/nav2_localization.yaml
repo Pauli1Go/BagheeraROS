@@ -19,7 +19,7 @@ amcl:
     alpha5: 0.01
 
     laser_model_type: likelihood_field
-    laser_min_range: 0.30
+    laser_min_range: 0.28
     # Long beams cross glass or unmapped office areas and can pull the filter
     # into another room. Six metres still covers the useful local geometry.
     laser_max_range: 6.0
@@ -52,17 +52,9 @@ amcl:
     update_min_d: 0.10
     update_min_a: 0.10
     save_pose_rate: 0.5
-    # Dock position measured with the robot parked in the dock. Seeding the
-    # filter at startup lets the map->odom transform exist before Nav2's
-    # lifecycle bringup; otherwise the planner costmap times out waiting for
-    # the base_link->map transform and the navigation stack never activates.
-    # Pose taken from /amcl_pose after Paul's manual 2D pose estimate at the
-    # dock on 2026-09-14.
-    set_initial_pose: true
-    initial_pose.x: 1.192
-    initial_pose.y: 1.884
-    initial_pose.z: 0.0
-    initial_pose.yaw: 1.527
+    # bagheera_pose_persistence supplies the saved pose or the measured dock
+    # pose. Never seed an undocked restart at the dock by default.
+    set_initial_pose: false
     always_reset_initial_pose: false
     first_map_only: false
     service_introspection_mode: disabled
@@ -84,3 +76,11 @@ lifecycle_manager_localization:
     service_timeout: 10.0
     attempt_respawn_reconnection: true
     bond_respawn_max_duration: 10.0
+
+bagheera_pose_persistence:
+  ros__parameters:
+    pose_file: /bagheera_ws/maps/last_pose.json
+    map_file: /bagheera_ws/maps/current.yaml
+    dock_x: 1.192
+    dock_y: 1.884
+    dock_yaw: 1.527

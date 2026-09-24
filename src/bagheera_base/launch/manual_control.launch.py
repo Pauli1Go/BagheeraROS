@@ -6,7 +6,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import Command, FindExecutable, LaunchConfiguration
+from launch.substitutions import Command, FindExecutable, LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.descriptions import ParameterValue
 
@@ -64,6 +64,9 @@ def generate_launch_description():
     nav2_localization_config = str(
         package_share / "config" / "nav2_localization.yaml"
     )
+    nav2_navigation_config = str(
+        package_share / "config" / "nav2_navigation.yaml"
+    )
 
     serial_port = LaunchConfiguration("serial_port")
     use_lidar = LaunchConfiguration("use_lidar")
@@ -90,6 +93,14 @@ def generate_launch_description():
         DeclareLaunchArgument("use_sensor_fusion", default_value="true"),
         DeclareLaunchArgument("use_map_localization", default_value="true"),
         DeclareLaunchArgument("use_navigation", default_value="true"),
+        DeclareLaunchArgument(
+            "enable_higher_speeds",
+            default_value="true",
+            description=(
+                "Double autonomous Nav2 linear speed and add 50 % "
+                "angular speed. Docking, undock and teleop untouched."
+            ),
+        ),
         DeclareLaunchArgument(
             "map",
             default_value="/bagheera_ws/maps/current.yaml",
@@ -207,12 +218,10 @@ def generate_launch_description():
         condition=IfCondition(use_compass),
     )
     camera = Node(
-        package="camera_ros",
-        executable="camera_node",
-        name="camera",
+        package="bagheera_base",
+        executable="bagheera_camera_manager",
+        name="bagheera_camera_manager",
         output="screen",
-        parameters=[sensor_config],
-        remappings=[("/camera/camera_info", "/camera/camera_info_raw")],
         condition=IfCondition(use_camera),
     )
 
@@ -225,6 +234,23 @@ def generate_launch_description():
         remappings=[("odometry/filtered", "/odometry/filtered")],
         condition=IfCondition(use_sensor_fusion),
     )
+    nav2_container = Node(
+        package="rclcpp_components",
+        executable="component_container_isolated",
+        name="nav2_container",
+        output="screen",
+        # ControllerServer and PlannerServer create their costmap nodes inside
+        # this process. Per-component parameters do not reach those child
+        # nodes; the process itself needs the parameter files so the costmap
+        # obstacle layers actually subscribe to /scan.
+        parameters=[nav2_localization_config, nav2_navigation_config],
+        condition=IfCondition(
+            PythonExpression([
+                "'", use_map_localization, "' == 'true' or '",
+                use_navigation, "' == 'true'",
+            ])
+        ),
+    )
     map_localization = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             str(
@@ -236,16 +262,30 @@ def generate_launch_description():
         launch_arguments={
             "autostart": "true",
             "use_sim_time": "false",
-            "use_composition": "False",
+            "use_composition": "True",
+            "container_name": "nav2_container",
             "map": LaunchConfiguration("map"),
             "params_file": nav2_localization_config,
         }.items(),
+        condition=IfCondition(use_map_localization),
+    )
+    pose_persistence = Node(
+        package="bagheera_base",
+        executable="bagheera_pose_persistence",
+        name="bagheera_pose_persistence",
+        output="screen",
+        parameters=[nav2_localization_config],
         condition=IfCondition(use_map_localization),
     )
     navigation = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             str(package_share / "launch" / "navigation.launch.py")
         ),
+        launch_arguments={
+            "enable_higher_speeds": LaunchConfiguration(
+                "enable_higher_speeds"
+            ),
+        }.items(),
         condition=IfCondition(use_navigation),
     )
     foxglove = Node(
@@ -262,6 +302,10 @@ def generate_launch_description():
                 "send_buffer_limit": 10_000_000,
                 "num_threads": 2,
                 "capabilities": ["clientPublish", "connectionGraph"],
+                # camera_ros encodes JPEG/raw frames in software whenever
+                # these topics have a subscriber, and Foxglove keeps its
+                # subscriptions open. Hide them; Foxglove uses /camera/h264.
+                "topic_whitelist": ["^(?!/camera/image_raw(/compressed)?$).*"],
             }
         ],
         condition=IfCondition(use_foxglove),
@@ -282,7 +326,9 @@ def generate_launch_description():
             compass,
             camera,
             ekf,
+            nav2_container,
             map_localization,
+            pose_persistence,
             navigation,
             foxglove,
         ]

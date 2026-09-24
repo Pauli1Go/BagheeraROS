@@ -2,6 +2,8 @@
 build
 install
 log
+maps
+sensor_logs
 **/__pycache__
 **/*.pyc
 .DS_Store

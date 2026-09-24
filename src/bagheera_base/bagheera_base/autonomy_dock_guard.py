@@ -43,6 +43,10 @@ class AutonomyDockGuard(Node):
         self.declare_parameter("odom_topic", "/odometry/filtered")
         self.declare_parameter("dock_voltage_threshold", 10.0)
         self.declare_parameter("dock_debounce_s", 1.0)
+        # Raw charging-contact voltage. The charger needs several seconds to
+        # reach the 10 V dock threshold after contact; autonomy must already
+        # be gated then, or Nav2 moves the robot inside the dock.
+        self.declare_parameter("contact_voltage_threshold", 0.5)
         self.declare_parameter("command_timeout_s", 0.5)
         self.declare_parameter("reverse_distance_m", 0.80)
         self.declare_parameter("reverse_speed_mps", 0.08)
@@ -52,16 +56,19 @@ class AutonomyDockGuard(Node):
         self.declare_parameter("reverse_max_angular_rps", 0.25)
         self.declare_parameter("turn_angle_rad", math.pi / 2.0)
         self.declare_parameter("turn_max_speed_rps", 0.30)
-        self.declare_parameter("turn_min_speed_rps", 0.16)
+        self.declare_parameter("turn_min_speed_rps", 0.30)
         self.declare_parameter("turn_gain", 0.8)
         self.declare_parameter("turn_tolerance_rad", math.radians(2.0))
-        self.declare_parameter("turn_timeout_s", 10.0)
+        self.declare_parameter("turn_timeout_s", 15.0)
         self.declare_parameter("settle_time_s", 0.30)
 
         self._dock_voltage = float(
             self.get_parameter("dock_voltage_threshold").value
         )
         self._dock_debounce = float(self.get_parameter("dock_debounce_s").value)
+        self._contact_voltage = float(
+            self.get_parameter("contact_voltage_threshold").value
+        )
         self._command_timeout = float(
             self.get_parameter("command_timeout_s").value
         )
@@ -99,6 +106,7 @@ class AutonomyDockGuard(Node):
         self._dock_candidate: bool | None = None
         self._dock_candidate_since = time.monotonic()
         self._docked: bool | None = None
+        self._contact_lost_since: float | None = None
         self._last_command: TwistStamped | None = None
         self._last_command_time = 0.0
         self._odom: Odometry | None = None
@@ -133,7 +141,9 @@ class AutonomyDockGuard(Node):
             self._on_localization_violation,
             10,
         )
-        self.create_timer(0.05, self._tick)
+        self._active_timer = self.create_timer(0.05, self._tick)
+        self._active_timer.cancel()
+        self.create_timer(0.5, self._idle_tick)
         self.create_timer(1.0, self._publish_docked)
         self.get_logger().info(
             "Autonomous dock guard active: dock voltage >= %.1f V; "
@@ -148,6 +158,15 @@ class AutonomyDockGuard(Node):
     def _on_command(self, message: TwistStamped) -> None:
         self._last_command = message
         self._last_command_time = time.monotonic()
+        if self._state == "CLEAR":
+            if self._localization_violation:
+                self._publish()
+            else:
+                self._publish_message(message)
+        elif self._state == "DOCKED_IDLE" and self._command_is_active(
+            self._last_command_time
+        ):
+            self._tick()
 
     def _on_power(self, message: Power) -> None:
         # Mowgli's established electrical dock test is v_charge >= 10 V.
@@ -157,6 +176,7 @@ class AutonomyDockGuard(Node):
             message.v_charge >= self._dock_voltage
         )
         now = time.monotonic()
+        self._update_contact_gate(message.v_charge, now)
         if candidate != self._dock_candidate:
             self._dock_candidate = candidate
             self._dock_candidate_since = now
@@ -169,10 +189,36 @@ class AutonomyDockGuard(Node):
         self._publish_docked()
         if candidate:
             self._state = "DOCKED_IDLE"
+            self._active_timer.cancel()
+            self._publish()
             self.get_logger().info("Dock connection detected; autonomy is gated")
         elif self._state in ("WAITING_FOR_POWER", "DOCKED_IDLE"):
             self._state = "CLEAR"
             self.get_logger().info("No dock connection; autonomy is released")
+
+    def _update_contact_gate(self, voltage: float, now: float) -> None:
+        """Gate on first contact, before the debounced 10 V dock state."""
+        contact = math.isfinite(voltage) and voltage >= self._contact_voltage
+        if contact and self._state == "CLEAR":
+            self._state = "DOCKED_IDLE"
+            self._active_timer.cancel()
+            self._publish()
+            self.get_logger().info(
+                "Charging contact detected (%.1f V); autonomy is gated" % voltage
+            )
+        if self._state != "DOCKED_IDLE" or self._docked:
+            self._contact_lost_since = None
+            return
+        # Contact without a confirmed dock (charger not up yet, or a brief
+        # touch): release again once the contact has been gone for a while.
+        if contact:
+            self._contact_lost_since = None
+        elif self._contact_lost_since is None:
+            self._contact_lost_since = now
+        elif now - self._contact_lost_since >= self._dock_debounce:
+            self._contact_lost_since = None
+            self._state = "CLEAR"
+            self.get_logger().info("Charging contact lost; autonomy is released")
 
     def _on_odom(self, message: Odometry) -> None:
         if self._state == "REVERSING":
@@ -188,6 +234,12 @@ class AutonomyDockGuard(Node):
 
     def _on_localization_violation(self, message: Bool) -> None:
         self._localization_violation = message.data
+        if message.data:
+            self._publish()
+
+    def _idle_tick(self) -> None:
+        if self._active_timer.is_canceled():
+            self._tick()
 
     def _publish_docked(self) -> None:
         if self._docked is not None:
@@ -238,6 +290,7 @@ class AutonomyDockGuard(Node):
         self._reverse_last_y = pose.position.y
         self._phase_started = now
         self._state = "REVERSING"
+        self._active_timer.reset()
         self.get_logger().info(
             "Autonomous movement requested while docked: reversing %.2f m"
             % self._reverse_distance
@@ -277,6 +330,7 @@ class AutonomyDockGuard(Node):
 
     def _fail(self, reason: str) -> None:
         self._state = "FAULT"
+        self._active_timer.cancel()
         self._publish()
         self.get_logger().error(f"Undocking aborted: {reason}; autonomy remains gated")
 
@@ -290,11 +344,9 @@ class AutonomyDockGuard(Node):
             return
 
         if self._state == "CLEAR":
-            if self._last_command is not None and (
-                now - self._last_command_time <= self._command_timeout
+            if self._last_command is None or (
+                now - self._last_command_time > self._command_timeout
             ):
-                self._publish_message(self._last_command)
-            else:
                 self._publish()
             return
 
@@ -381,6 +433,7 @@ class AutonomyDockGuard(Node):
                 self._fail("dock voltage is still present after the manoeuvre")
                 return
             self._state = "CLEAR"
+            self._active_timer.cancel()
             self.get_logger().info("Undocking complete; autonomous movement released")
 
 

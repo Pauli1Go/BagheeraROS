@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 
 from action_msgs.msg import GoalStatus
@@ -12,11 +13,88 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 
 
+DEFAULT_FOOTPRINT = "[[0.4434, 0.18], [0.4434, -0.18], [-0.0866, -0.18], [-0.0866, 0.18]]"
+
+
+def _yaw(orientation) -> float:
+    q = orientation
+    return math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+
+
+def parse_footprint(text: str) -> list[tuple[float, float]]:
+    points = json.loads(text)
+    if len(points) < 3:
+        raise ValueError("footprint needs at least three points")
+    return [(float(x), float(y)) for x, y in points]
+
+
+def _inside(polygon: list[tuple[float, float]], x: float, y: float) -> bool:
+    inside = False
+    for index, (x1, y1) in enumerate(polygon):
+        x2, y2 = polygon[index - 1]
+        if (y1 > y) != (y2 > y) and x < (x2 - x1) * (y - y1) / (y2 - y1) + x1:
+            inside = not inside
+    return inside
+
+
+def blocked_footprint_cell(
+    grid: OccupancyGrid,
+    footprint: list[tuple[float, float]],
+    x: float,
+    y: float,
+    yaw: float,
+    occupied_threshold: int,
+) -> tuple[float, float] | None:
+    """First grid cell under the oriented footprint that is occupied/unknown.
+
+    Returns its world coordinates, or None when the whole footprint is free.
+    base_link is Bagheera's axle, so the footprint reaches 0.44 m ahead: a goal
+    point can be free while the nose of the robot would sit in a wall.
+    """
+    info = grid.info
+    resolution = info.resolution
+    origin_yaw = _yaw(info.origin.orientation)
+    cos_o, sin_o = math.cos(origin_yaw), math.sin(origin_yaw)
+    cos_r, sin_r = math.cos(yaw), math.sin(yaw)
+    corners = [
+        (x + cos_r * fx - sin_r * fy, y + sin_r * fx + cos_r * fy) for fx, fy in footprint
+    ]
+    min_x = min(c[0] for c in corners) - resolution
+    max_x = max(c[0] for c in corners) + resolution
+    min_y = min(c[1] for c in corners) - resolution
+    max_y = max(c[1] for c in corners) + resolution
+    steps_x = int(math.ceil((max_x - min_x) / resolution * 2.0)) + 1
+    steps_y = int(math.ceil((max_y - min_y) / resolution * 2.0)) + 1
+    # Sample at half-cell spacing so thin walls under the outline are hit.
+    for i in range(steps_x):
+        wx = min_x + i * resolution / 2.0
+        for j in range(steps_y):
+            wy = min_y + j * resolution / 2.0
+            dx, dy = wx - x, wy - y
+            if not _inside(footprint, cos_r * dx + sin_r * dy, -sin_r * dx + cos_r * dy):
+                continue
+            gx = wx - info.origin.position.x
+            gy = wy - info.origin.position.y
+            cell_x = math.floor((cos_o * gx + sin_o * gy) / resolution)
+            cell_y = math.floor((-sin_o * gx + cos_o * gy) / resolution)
+            if not (0 <= cell_x < info.width and 0 <= cell_y < info.height):
+                return wx, wy
+            value = grid.data[cell_y * info.width + cell_x]
+            if value < 0 or value >= occupied_threshold:
+                return wx, wy
+    return None
+
+
 class GoalPoseBridge(Node):
     """Forward Foxglove click-to-publish poses to Nav2's action server."""
 
     def __init__(self) -> None:
         super().__init__("bagheera_goal_pose_bridge")
+        self.declare_parameter("footprint", DEFAULT_FOOTPRINT)
+        self.declare_parameter("map_occupied_threshold", 65)
+        self._footprint = parse_footprint(str(self.get_parameter("footprint").value))
+        self._occupied_threshold = int(self.get_parameter("map_occupied_threshold").value)
+        self._map: OccupancyGrid | None = None
         self._client = ActionClient(self, NavigateToPose, "/navigate_to_pose")
         self._goal_handle = None
         self._cancel_in_progress = False
@@ -35,12 +113,16 @@ class GoalPoseBridge(Node):
             self._on_keepout_mask,
             mask_qos,
         )
+        self.create_subscription(OccupancyGrid, "/map", self._on_map, mask_qos)
         self.get_logger().info(
             "Foxglove goals accepted on /goal_pose and /move_base_simple/goal"
         )
 
     def _on_keepout_mask(self, message: OccupancyGrid) -> None:
         self._keepout_mask = message
+
+    def _on_map(self, message: OccupancyGrid) -> None:
+        self._map = message
 
     def _goal_is_blocked(self, pose: PoseStamped) -> bool:
         mask = self._keepout_mask
@@ -80,13 +162,32 @@ class GoalPoseBridge(Node):
                 % (pose.pose.position.x, pose.pose.position.y)
             )
             return
+        yaw = _yaw(pose.pose.orientation)
+        for name, grid, threshold in (
+            ("wall", self._map, self._occupied_threshold),
+            ("keepout zone", self._keepout_mask, 50),
+        ):
+            if grid is None:
+                continue
+            hit = blocked_footprint_cell(
+                grid, self._footprint, pose.pose.position.x, pose.pose.position.y,
+                yaw, threshold,
+            )
+            if hit is not None:
+                self.get_logger().warn(
+                    "Rejecting goal (%.2f, %.2f, %.0f deg): robot footprint would "
+                    "overlap a %s/unknown cell at (%.2f, %.2f)"
+                    % (pose.pose.position.x, pose.pose.position.y, math.degrees(yaw),
+                       name, hit[0], hit[1])
+                )
+                return
         if not self._client.wait_for_server(timeout_sec=0.0):
             self.get_logger().error("Nav2 /navigate_to_pose action is not available")
             return
 
         self.get_logger().info(
-            "Forwarding valid goal at (%.2f, %.2f)"
-            % (pose.pose.position.x, pose.pose.position.y)
+            "Forwarding valid goal at (%.2f, %.2f, %.0f deg)"
+            % (pose.pose.position.x, pose.pose.position.y, math.degrees(yaw))
         )
 
         self._pending_pose = pose

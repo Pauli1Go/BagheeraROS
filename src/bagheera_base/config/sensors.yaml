@@ -23,7 +23,9 @@ ydlidar_ros2_driver_node:
     angle_max: 180.0
     angle_min: -180.0
     range_max: 16.0
-    range_min: 0.28
+    # Requested close-range trial. G2 nominal minimum is 0.28 m; readings
+    # between 0.20 and 0.28 m must be checked against the real /scan data.
+    range_min: 0.20
     frequency: 10.0
     invalid_range_is_inf: true
     debug: false
@@ -120,11 +122,20 @@ camera:
     format: NV21
     width: 1920
     height: 1080
-    # Keep the full fisheye field of view at 1080p, but cap the monitoring
-    # stream at 10 FPS so camera encoding cannot starve localization/Nav2.
-    # Frame durations are in microseconds.
+    # 15 FPS is the limit of the full-FOV 2592x1944 sensor mode. Frame
+    # durations are in microseconds.
+    FrameDurationLimits: [66666, 66666]
+    # Software JPEG for AprilTag docking only (7.5 FPS, ~70 % of one core
+    # while subscribed). Detection runs at ~5 frames/s on the Pi 4.
     jpeg_quality: 20
-    FrameDurationLimits: [100000, 100000]
+    jpeg_frame_divisor: 2
+    # Colour H.264 on the Pi 4 hardware encoder for Foxglove (/camera/h264,
+    # ~17 % of one core at 15 FPS). Encoded only while subscribed; one
+    # keyframe per second lets a new viewer start within a second.
+    h264_device: /dev/video11
+    h264_bitrate: 2000000
+    h264_intra_period: 15
+    h264_framerate: 15
     camera_info_url: "file:///bagheera_ws/install/share/bagheera_base/config/camera_fisheye.yaml"
     # Force the complete 4:3 sensor area so the fisheye field of view is kept.
     sensor_mode: "2592:1944"

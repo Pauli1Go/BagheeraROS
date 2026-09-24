@@ -80,10 +80,8 @@ controller_server:
       # RPP owns final goal orientation. Keeping this enabled in the shim made
       # its stateless XY check fight RPP when AMCL jitter crossed the XY limit.
       rotate_to_goal_heading: false
-      # Rotate in place only when the goal/path first arrives. With false the
-      # shim re-checked the 0.30 m sampled point every cycle, and each 1 Hz
-      # replan near doors flipped its side: R-L-R-L in-place paddling for
-      # 68% of the run time (measured 2026-09-15). RPP handles curves.
+      # Rotate in place only for initial path alignment. A fresh 1 Hz plan
+      # must not restart the shim's turn at every doorway update.
       rotate_to_heading_once: true
       use_path_orientations: false
 
@@ -157,9 +155,11 @@ local_costmap:
           # discarded every return even though the layer-level default is 2 m.
           min_obstacle_height: 0.0
           max_obstacle_height: 1.0
-          obstacle_min_range: 0.30
+          # Accept every valid ray the G2 publishes. Its specified minimum
+          # range is 0.28 m; do not add another software blind ring.
+          obstacle_min_range: 0.0
           obstacle_max_range: 2.5
-          raytrace_min_range: 0.30
+          raytrace_min_range: 0.0
           raytrace_max_range: 4.0
           observation_persistence: 0.0
           expected_update_rate: 0.20
@@ -212,9 +212,9 @@ global_costmap:
           marking: true
           min_obstacle_height: 0.0
           max_obstacle_height: 1.0
-          obstacle_min_range: 0.30
+          obstacle_min_range: 0.0
           obstacle_max_range: 3.0
-          raytrace_min_range: 0.30
+          raytrace_min_range: 0.0
           raytrace_max_range: 5.0
           observation_persistence: 0.0
           expected_update_rate: 0.20
@@ -237,7 +237,7 @@ planner_server:
   ros__parameters:
     use_sim_time: false
     bond_heartbeat_period: 1.0
-    expected_planner_frequency: 2.0
+    expected_planner_frequency: 1.0
     costmap_update_timeout: 1.0
     planner_plugins: ["GridBased"]
     GridBased:
@@ -301,6 +301,8 @@ bagheera_autonomy_dock_guard:
     # between physically connected to the charger and away from the dock.
     dock_voltage_threshold: 10.0
     dock_debounce_s: 1.0
+    # Gate autonomy already at first contact; 10 V follows seconds later.
+    contact_voltage_threshold: 0.5
     command_timeout_s: 0.5
     reverse_distance_m: 0.80
     reverse_speed_mps: 0.08
@@ -311,11 +313,176 @@ bagheera_autonomy_dock_guard:
     turn_angle_rad: 1.5707963267948966
     # Same deliberately reduced angular speed used for manual mapping.
     turn_max_speed_rps: 0.30
-    turn_min_speed_rps: 0.16
+    turn_min_speed_rps: 0.30
     turn_gain: 0.8
     turn_tolerance_rad: 0.03490658503988659
-    turn_timeout_s: 10.0
+    turn_timeout_s: 15.0
     settle_time_s: 0.30
+
+dock_apriltag:
+  ros__parameters:
+    # Consume the camera's JPEG stream directly. Relaying 960x540 mono8
+    # images over DDS produced only 0-3 frames/10 s at this subscriber,
+    # despite the relay publishing 10 Hz.
+    image_transport: compressed
+    family: Standard41h12
+    # AprilTag pose size is the detected black/white border, not the outside
+    # edge of the printed 9-cell tag: tagStandard41h12 uses 5/9 of it.
+    size: 0.026667
+    max_hamming: 0
+    profile: false
+    # The Kilted binary requires a valid method even though Bagheera ignores
+    # its pinhole pose and computes fisheye geometry from the raw corners.
+    pose_estimation_method: pnp
+    qos_profile: sensor_data
+    detector:
+      # A full 1080p quad search saturated the four-core Pi. The source is
+      # 1920x1080; 2x decimation preserves the former 960x540 search scale.
+      threads: 2
+      decimate: 2.0
+      blur: 0.0
+      refine: true
+      sharpening: 0.25
+      debug: false
+    tag:
+      ids: [0, 1]
+      frames: [dock_tag_far, dock_tag_near]
+      sizes: [0.088889, 0.026667]
+
+docking_server:
+  ros__parameters:
+    use_sim_time: false
+    bond_heartbeat_period: 1.0
+    # The dock is static in odom; map corrections from AMCL would move it.
+    fixed_frame: odom
+    base_frame: base_link
+    odom_topic: /odometry/filtered
+    controller_frequency: 20.0
+    # Camera start (~2.4 s) plus AprilTag latency (~0.9 s) on the Pi.
+    initial_perception_timeout: 10.0
+    dock_approach_timeout: 40.0
+    # Includes bagheera_dock_trigger's straight final approach (~3 s) and the
+    # charger ramp to the debounced 10 V /docked (several seconds).
+    wait_charge_timeout: 20.0
+    undock_linear_tolerance: 0.05
+    undock_angular_tolerance: 0.05
+    max_retries: 2
+    # Closer than this to the staging pose: start visually without Nav2.
+    dock_prestaging_tolerance: 0.15
+
+    dock_plugins: ["bagheera_dock"]
+    bagheera_dock:
+      plugin: bagheera_docking::TagChargingDock
+      # Staging pose = robot pose measured on 2026-09-23 with both tags in
+      # view: map (1.218, 1.252, 1.607 rad), expressed relative to home_dock.
+      staging_x_offset: -0.6299
+      staging_y_offset: -0.0537
+      staging_yaw_offset: 0.0802
+      # ID 1 (dock) -> base_link at electrical contact, in the dock frame.
+      # x: the docked camera image shows ID 1's 26.67 mm border ~840 px wide,
+      # i.e. ~3.5 cm camera depth; camera 0.4334 m ahead of base_link.
+      # (bagheera_dock_calibrate's x is unusable: odom slips leaving the dock.)
+      external_detection_translation_x: -0.468
+      # y and yaw: bagheera_dock_calibrate on 2026-09-23, mean of 10 stops
+      # 0.18-0.64 m from the dock (spread +-1 cm / +-0.5 deg).
+      external_detection_translation_y: 0.002
+      # ID 0 (wall) direction -> robot heading when docked.
+      axis_yaw_offset: 0.0055
+      require_axis_tag: true
+      # AprilTag results arrive 0.9-1.1 s after exposure and then wait up to
+      # 0.3 s for the next control cycle. The dock is static in odom, so older
+      # measurements stay valid; 1.5 s aborted approaches as "ID 1 lost".
+      detection_timeout: 3.0
+      position_filter_coef: 0.3
+      yaw_filter_coef: 0.2
+      max_position_jump: 0.10
+      max_yaw_jump: 0.17
+      # ID 1 leaves the image ~4 cm before contact: hold its last pose there.
+      hold_distance: 0.30
+      # Nav2's curve ends at this pre-dock pose on the dock axis, 12 cm in
+      # front of contact; bagheera_dock_trigger drives the rest straight. At
+      # the pins the curve was still turning (+-14 deg, contacts 3 cm off).
+      pre_dock_distance: 0.12
+      # Off-axis at the pre-dock line: report a lost detection so that Nav2
+      # retries from staging at once instead of waiting 20 s for charge. It
+      # docked with the pins 1.5 cm off axis; the straight drive trims ~1 cm.
+      pre_dock_max_lateral: 0.025
+      pre_dock_max_yaw: 0.17453292519943295  # 10 deg
+      contact_voltage: 0.5
+
+    docks: ["home_dock"]
+    home_dock:
+      type: bagheera_dock
+      frame: map
+      # AMCL pose measured with base_link parked in the dock. Only the
+      # staging pose is derived from it; the approach uses the tags.
+      pose: [1.192, 1.884, 1.527]
+
+    controller:
+      k_phi: 3.0
+      k_delta: 2.0
+      beta: 0.4
+      lambda: 2.0
+      v_linear_min: 0.05
+      v_linear_max: 0.10
+      v_angular_max: 0.30
+      slowdown_radius: 0.25
+      use_collision_detection: true
+      costmap_topic: /local_costmap/costmap_raw
+      footprint_topic: /local_costmap/published_footprint
+      transform_tolerance: 0.3
+      projection_time: 5.0
+      simulation_time_step: 0.1
+      # Measured from the controller target 0.25 m beyond the dock pose:
+      # the last 15 cm before contact are not collision checked, because
+      # the dock and wall lie right in front of the chassis there.
+      dock_collision_threshold: 0.40
+
+bagheera_goal_pose_bridge:
+  ros__parameters:
+    # Same footprint as the costmaps: a Foxglove goal is rejected when the
+    # oriented robot (not only its axle point) would overlap a wall, unknown
+    # map or keepout cell in its final pose.
+    footprint: "[[0.4434, 0.18], [0.4434, -0.18], [-0.0866, -0.18], [-0.0866, 0.18]]"
+    map_occupied_threshold: 65
+
+bagheera_dock_frame_gate:
+  ros__parameters:
+    result_timeout_s: 1.0
+
+bagheera_dock_tag_pose:
+  ros__parameters:
+    position_tag_id: 1
+    position_tag_size_m: 0.026667
+    axis_tag_id: 0
+    axis_tag_size_m: 0.088889
+    minimum_decision_margin: 15.0
+    minimum_edge_pixels: 16.0
+    # ID 0 measured 113 px / 0.35 deg std at the staging pose.
+    minimum_axis_edge_pixels: 60.0
+    maximum_axis_heading_rad: 0.5235987755982988
+    camera_frame: camera_optical_frame
+
+bagheera_dock_trigger:
+  ros__parameters:
+    dock_id: home_dock
+    max_staging_time_s: 120.0
+    # Straight final approach from the plugin's pre-dock pose to the pins.
+    final_speed_mps: 0.05
+    final_overtravel_m: 0.03
+    final_heading_gain: 1.2
+    final_trim_max_rad: 0.06981317007977318  # 4 deg
+    final_trim_distance_m: 0.25
+    final_max_angular_rps: 0.20
+    # Charging contacts ahead of base_link (for logging the pin offset).
+    final_front_offset_m: 0.47
+    # Hand-over limits. The heading is turned back during the straight drive
+    # (the curve still swings +-7 deg); an axle offset is not, so a larger
+    # one skips the drive and Nav2 retries from the staging pose.
+    final_max_lateral_m: 0.025
+    final_max_yaw_rad: 0.17453292519943295  # 10 deg
+    final_timeout_s: 8.0
+    contact_voltage: 0.5
 
 keepout_filter_mask_server:
   ros__parameters:

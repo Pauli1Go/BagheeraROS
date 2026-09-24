@@ -1,0 +1,11 @@
+<class_libraries>
+  <library path="tag_charging_dock">
+    <class type="bagheera_docking::TagChargingDock"
+           base_class_type="opennav_docking_core::ChargingDock">
+      <description>
+        Bagheera charging dock: ID 1 AprilTag position, ID 0 wall-tag axis,
+        contact from charge voltage.
+      </description>
+    </class>
+  </library>
+</class_libraries>

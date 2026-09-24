@@ -1,16 +1,71 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 047ea95..42e39af 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -17,6 +17,7 @@ set(PACKAGE_DEPENDENCIES
+   "rclcpp_components"
+   "sensor_msgs"
+   "diagnostic_msgs"
++  "foxglove_msgs"
+   "camera_info_manager"
+   "cv_bridge"
+ )
+@@ -72,13 +73,14 @@ target_link_libraries(
+ set_property(TARGET param PROPERTY POSITION_INDEPENDENT_CODE ON)
+ 
+ # composable ROS2 node
+-add_library(camera_component SHARED src/CameraNode.cpp)
++add_library(camera_component SHARED src/CameraNode.cpp src/H264Encoder.cpp)
+ rclcpp_components_register_node(camera_component PLUGIN "camera::CameraNode" EXECUTABLE "camera_node")
+ target_link_libraries(camera_component PUBLIC
+   rclcpp::rclcpp
+   rclcpp_components::component
+   ${sensor_msgs_TARGETS}
+   ${diagnostic_msgs_TARGETS}
++  ${foxglove_msgs_TARGETS}
+   camera_info_manager::camera_info_manager
+   cv_bridge::cv_bridge
+ )
+diff --git a/package.xml b/package.xml
+index c268ee1..348b299 100644
+--- a/package.xml
++++ b/package.xml
+@@ -14,6 +14,7 @@
+   <depend>rclcpp_components</depend>
+   <depend>sensor_msgs</depend>
+   <depend>diagnostic_msgs</depend>
++  <depend>foxglove_msgs</depend>
+   <depend>camera_info_manager</depend>
+   <depend>cv_bridge</depend>
+ 
 diff --git a/src/CameraNode.cpp b/src/CameraNode.cpp
-index 76ed413..b369da3 100644
+index 76ed413..2ad303f 100644
 --- a/src/CameraNode.cpp
 +++ b/src/CameraNode.cpp
-@@ -15,6 +15,7 @@
+@@ -1,3 +1,4 @@
++#include "H264Encoder.hpp"
+ #include "ParameterHandler.hpp"
+ #include "format_mapping.hpp"
+ #include "libcamera_version_utils.hpp"
+@@ -15,13 +16,17 @@
  #include <cv_bridge/cv_bridge.h>
  #endif
  #include <atomic>
 +#include <condition_variable>
  #include <diagnostic_msgs/msg/diagnostic_array.hpp>
++#include <foxglove_msgs/msg/compressed_video.hpp>
  #include <iostream>
++#include <linux/videodev2.h>
  #include <libcamera/base/shared_fd.h>
-@@ -32,6 +33,7 @@
+ #include <libcamera/base/signal.h>
+ #include <libcamera/base/span.h>
+ #include <libcamera/camera.h>
+ #include <libcamera/camera_manager.h>
++#include <libcamera/color_space.h>
+ #include <libcamera/control_ids.h>
+ #include <libcamera/formats.h>
+ #include <libcamera/framebuffer.h>
+@@ -32,6 +37,7 @@
  #include <libcamera/request.h>
  #include <libcamera/stream.h>
  #include <memory>
@@ -18,7 +73,7 @@ index 76ed413..b369da3 100644
  #include <opencv2/core/mat.hpp>
  #include <opencv2/imgcodecs.hpp>
  #include <optional>
-@@ -86,10 +88,12 @@ private:
+@@ -86,10 +92,12 @@ private:
    libcamera::Stream *stream;
    std::shared_ptr<libcamera::FrameBufferAllocator> allocator;
    std::vector<std::unique_ptr<libcamera::Request>> requests;
@@ -34,7 +89,32 @@ index 76ed413..b369da3 100644
  
    struct buffer_info_t
    {
-@@ -129,7 +133,10 @@ private:
+@@ -106,6 +114,13 @@ private:
+   rclcpp::Publisher<sensor_msgs::msg::CompressedImage>::SharedPtr pub_image_compressed;
+   rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr pub_ci;
+   rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr pub_diagnostics;
++  rclcpp::Publisher<foxglove_msgs::msg::CompressedVideo>::SharedPtr pub_h264;
++
++  // hardware H.264 stream, encoded only while "~/h264" has subscribers
++  std::optional<H264Encoder::Config> h264_config;
++  std::unique_ptr<H264Encoder> h264_encoder;
++  size_t h264_frame_size = 0;
++  size_t h264_subscribers = 0;
+ 
+   camera_info_manager::CameraInfoManager cim;
+ 
+@@ -122,6 +137,10 @@ private:
+   // compression quality parameter
+   std::atomic_uint8_t jpeg_quality;
+ 
++  // JPEG only every n-th processed frame; the H.264 stream keeps the full rate
++  std::atomic_uint32_t jpeg_frame_divisor;
++  uint32_t frames_since_jpeg = 0;
++
+   void
+   onDisconnect();
+ 
+@@ -129,7 +148,16 @@ private:
    requestComplete(libcamera::Request *const request);
  
    void
@@ -43,11 +123,31 @@ index 76ed413..b369da3 100644
 +
 +  void
 +  requeueDroppedRequest(libcamera::Request *const request);
++
++  void
++  setupH264(const libcamera::StreamConfiguration &cfg, const std::string &device);
++
++  void
++  publishH264(const libcamera::FrameBuffer *buffer, const std_msgs::msg::Header &hdr);
  
    void
    postParameterChange(const std::vector<rclcpp::Parameter> &parameters);
-@@ -347,8 +354,8 @@ CameraNode::CameraNode(const rclcpp::NodeOptions &options)
+@@ -345,13 +373,28 @@ CameraNode::CameraNode(const rclcpp::NodeOptions &options)
+   param_descr_use_node_time.read_only = true;
+   use_node_time = declare_parameter<bool>("use_node_time", false, param_descr_use_node_time);
  
++  rcl_interfaces::msg::ParameterDescriptor param_descr_jpeg_divisor;
++  param_descr_jpeg_divisor.description = "encode JPEG only for every n-th frame";
++  rcl_interfaces::msg::IntegerRange jpeg_divisor_range;
++  jpeg_divisor_range.from_value = 1;
++  jpeg_divisor_range.to_value = 30;
++  jpeg_divisor_range.step = 1;
++  param_descr_jpeg_divisor.integer_range = {jpeg_divisor_range};
++  jpeg_frame_divisor = declare_parameter<int>("jpeg_frame_divisor", 1, param_descr_jpeg_divisor);
++
++  // hardware H.264 encoder (V4L2 memory-to-memory device), empty to disable
++  const std::string h264_device = declare_parameter<std::string>("h264_device", {}, param_descr_ro);
++
    // publisher for raw and compressed image
    pub_image = this->create_publisher<sensor_msgs::msg::Image>("~/image_raw", 1, pubopts);
 -  pub_image_compressed =
@@ -57,11 +157,20 @@ index 76ed413..b369da3 100644
    pub_ci = this->create_publisher<sensor_msgs::msg::CameraInfo>("~/camera_info", 1, pubopts);
    pub_diagnostics =
      this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/diagnostics", 1);
-@@ -600,14 +607,10 @@ CameraNode::CameraNode(const rclcpp::NodeOptions &options)
++  // Reliable: a lost frame corrupts the picture until the next keyframe.
++  pub_h264 = this->create_publisher<foxglove_msgs::msg::CompressedVideo>(
++    "~/h264", rclcpp::QoS(5).reliable(), pubopts);
+ 
+   // start camera manager and check for cameras
+   std::scoped_lock camera_manager_lk(camera_manager_mutex);
+@@ -600,14 +643,13 @@ CameraNode::CameraNode(const rclcpp::NodeOptions &options)
  
    assert(nbuffer >= 0 && requests.size() == size_t(nbuffer));
  
 -  // create a processing thread per request
++  if (!h264_device.empty())
++    setupH264(stream->configuration(), h264_device);
++
 +  // A single latest-frame-only worker prevents parallel JPEG encoders from
 +  // saturating the CPU and publishing completed frames out of timestamp order.
    running = true;
@@ -75,7 +184,7 @@ index 76ed413..b369da3 100644
  
    // register callback
    camera->requestCompleted.connect(this, &CameraNode::requestComplete);
-@@ -645,13 +648,11 @@ CameraNode::~CameraNode()
+@@ -645,13 +687,14 @@ CameraNode::~CameraNode()
    // stop request processing threads
    running = false;
  
@@ -83,17 +192,20 @@ index 76ed413..b369da3 100644
 -  for (auto &[req, condvar] : request_condvars)
 -    condvar.notify_all();
 +  completed_request_condvar.notify_all();
- 
--  // wait for all currently running threads to finish
--  for (std::thread &thread : request_threads)
--    thread.join();
++
 +  // wait for the currently running encode to finish
 +  if (processing_thread.joinable())
 +    processing_thread.join();
  
+-  // wait for all currently running threads to finish
+-  for (std::thread &thread : request_threads)
+-    thread.join();
++  // release the imported frame buffers before libcamera frees them
++  h264_encoder.reset();
+ 
    // stop camera
    if (camera->stop()) {
-@@ -704,27 +705,49 @@ CameraNode::onDisconnect()
+@@ -704,27 +747,49 @@ CameraNode::onDisconnect()
    }
  
    running = false;
@@ -119,30 +231,30 @@ index 76ed413..b369da3 100644
 +    requeueDroppedRequest(dropped_request);
 +
 +  completed_request_condvar.notify_one();
-+}
-+
-+void
+ }
+ 
+ void
+-CameraNode::process(libcamera::Request *const request)
 +CameraNode::requeueDroppedRequest(libcamera::Request *const request)
-+{
+ {
+-  while (true) {
+-    // block until request is available
+-    std::unique_lock lk(request_mutexes.at(request));
+-    request_condvars.at(request).wait(lk);
 +  request->reuse(libcamera::Request::ReuseBuffers);
 +  if (const int ret = camera->queueRequest(request); ret < 0) {
 +    RCLCPP_WARN_STREAM(get_logger(), "failed to requeue dropped request (" << request->toString() << "): " << strerror(-ret));
 +    if (ret == -ENODEV || ret == -EACCES)
 +      running = false;
 +  }
- }
++}
  
- void
--CameraNode::process(libcamera::Request *const request)
-+CameraNode::process()
- {
-   while (true) {
--    // block until request is available
--    std::unique_lock lk(request_mutexes.at(request));
--    request_condvars.at(request).wait(lk);
--
 -    if (!running)
 -      return;
++void
++CameraNode::process()
++{
++  while (true) {
 +    libcamera::Request *request = nullptr;
 +    {
 +      std::unique_lock lk(completed_request_mutex);
@@ -154,14 +266,33 @@ index 76ed413..b369da3 100644
  
      // prepare message header
      std_msgs::msg::Header hdr;
-@@ -777,55 +800,130 @@ CameraNode::process(libcamera::Request *const request)
+@@ -777,55 +842,149 @@ CameraNode::process(libcamera::Request *const request)
        // prepare image messages
        const libcamera::StreamConfiguration &cfg = stream->configuration();
  
 -      auto msg_img = std::make_unique<sensor_msgs::msg::Image>();
 -      auto msg_img_compressed = std::make_unique<sensor_msgs::msg::CompressedImage>();
 +      const bool publish_raw = pub_image->get_subscription_count() > 0;
-+      const bool publish_compressed = pub_image_compressed->get_subscription_count() > 0;
++      bool publish_compressed = false;
++      if (pub_image_compressed->get_subscription_count() > 0) {
++        publish_compressed = ++frames_since_jpeg >= jpeg_frame_divisor;
++        if (publish_compressed)
++          frames_since_jpeg = 0;
++      }
++      else {
++        // encode the first frame after a subscription immediately
++        frames_since_jpeg = jpeg_frame_divisor;
++      }
++
++      if (h264_config) {
++        const size_t subscribers = pub_h264->get_subscription_count();
++        // a new viewer can only start decoding at a keyframe
++        if (h264_encoder && subscribers > h264_subscribers)
++          h264_encoder->forceKeyframe();
++        h264_subscribers = subscribers;
++        if (subscribers > 0)
++          publishH264(buffer, hdr);
++      }
 +      std::unique_ptr<sensor_msgs::msg::Image> msg_img;
 +      std::unique_ptr<sensor_msgs::msg::CompressedImage> msg_img_compressed;
  
@@ -312,3 +443,461 @@ index 76ed413..b369da3 100644
      }
      else if (request->status() == libcamera::Request::RequestCancelled) {
        diagnostic_status.level = diagnostic_msgs::msg::DiagnosticStatus::WARN;
+@@ -862,6 +1021,88 @@ CameraNode::process(libcamera::Request *const request)
+   }
+ }
+ 
++void
++CameraNode::setupH264(const libcamera::StreamConfiguration &cfg, const std::string &device)
++{
++  uint32_t pixelformat = 0;
++  if (cfg.pixelFormat == libcamera::formats::NV21)
++    pixelformat = V4L2_PIX_FMT_NV21;
++  else if (cfg.pixelFormat == libcamera::formats::NV12)
++    pixelformat = V4L2_PIX_FMT_NV12;
++  else {
++    RCLCPP_ERROR_STREAM(get_logger(), "H.264 needs format NV12 or NV21, not " << cfg.pixelFormat);
++    return;
++  }
++
++  // The encoder reads the chroma plane directly behind the luminance plane.
++  const libcamera::FrameBuffer &buffer = *allocator->buffers(stream).front();
++  const size_t luma_size = static_cast<size_t>(cfg.stride) * cfg.size.height;
++  if (buffer.planes().size() != 2 || buffer.planes()[0].offset != 0 ||
++      buffer.planes()[1].offset != luma_size) {
++    RCLCPP_ERROR_STREAM(get_logger(), "H.264 needs contiguous luminance and chroma planes");
++    return;
++  }
++  h264_frame_size = luma_size + luma_size / 2;
++
++  uint32_t colorspace = V4L2_COLORSPACE_DEFAULT;
++  if (cfg.colorSpace == libcamera::ColorSpace::Sycc)
++    colorspace = V4L2_COLORSPACE_JPEG;
++  else if (cfg.colorSpace == libcamera::ColorSpace::Rec709)
++    colorspace = V4L2_COLORSPACE_REC709;
++  else if (cfg.colorSpace == libcamera::ColorSpace::Smpte170m)
++    colorspace = V4L2_COLORSPACE_SMPTE170M;
++
++  rcl_interfaces::msg::ParameterDescriptor param_descr_ro;
++  param_descr_ro.read_only = true;
++  h264_config = H264Encoder::Config {
++    device,
++    cfg.size.width,
++    cfg.size.height,
++    cfg.stride,
++    pixelformat,
++    colorspace,
++    static_cast<int>(declare_parameter<int>("h264_bitrate", 2000000, param_descr_ro)),
++    static_cast<int>(declare_parameter<int>("h264_intra_period", 15, param_descr_ro)),
++    static_cast<int>(declare_parameter<int>("h264_framerate", 15, param_descr_ro)),
++  };
++  try {
++    h264_encoder = std::make_unique<H264Encoder>(*h264_config);
++    RCLCPP_INFO_STREAM(get_logger(), "H.264 encoder on " << device << " ready");
++  }
++  catch (const std::exception &e) {
++    RCLCPP_ERROR_STREAM(get_logger(), e.what() << "; H.264 stream disabled");
++    h264_config.reset();
++  }
++}
++
++void
++CameraNode::publishH264(const libcamera::FrameBuffer *buffer, const std_msgs::msg::Header &hdr)
++{
++  try {
++    if (!h264_encoder) {
++      // reopen after a failed frame; the next keyframe restarts the stream
++      h264_encoder = std::make_unique<H264Encoder>(*h264_config);
++    }
++    auto msg = std::make_unique<foxglove_msgs::msg::CompressedVideo>();
++    bool keyframe = false;
++    const int64_t timestamp_us = rclcpp::Time(hdr.stamp).nanoseconds() / 1000;
++    if (!h264_encoder->encode(buffer->planes().front().fd.get(), h264_frame_size,
++                              buffer_info[buffer].size, timestamp_us, msg->data, keyframe)) {
++      RCLCPP_WARN_STREAM(get_logger(), "H.264 encoder timed out; reopening it");
++      h264_encoder.reset();
++      return;
++    }
++    msg->timestamp = hdr.stamp;
++    msg->frame_id = hdr.frame_id;
++    msg->format = "h264";
++    pub_h264->publish(std::move(msg));
++  }
++  catch (const std::exception &e) {
++    RCLCPP_ERROR_STREAM_THROTTLE(get_logger(), *get_clock(), 5000, e.what());
++    h264_encoder.reset();
++  }
++}
++
+ void
+ CameraNode::postParameterChange(const std::vector<rclcpp::Parameter> &parameters)
+ {
+@@ -870,6 +1111,9 @@ CameraNode::postParameterChange(const std::vector<rclcpp::Parameter> &parameters
+     if (parameter.get_name() == "jpeg_quality") {
+       jpeg_quality = parameter.get_parameter_value().get<uint8_t>();
+     }
++    else if (parameter.get_name() == "jpeg_frame_divisor") {
++      jpeg_frame_divisor = parameter.get_parameter_value().get<int>();
++    }
+   }
+ }
+ 
+diff --git a/src/H264Encoder.cpp b/src/H264Encoder.cpp
+new file mode 100644
+index 0000000..41d41dd
+--- /dev/null
++++ b/src/H264Encoder.cpp
+@@ -0,0 +1,279 @@
++#include "H264Encoder.hpp"
++#include <cerrno>
++#include <chrono>
++#include <cstring>
++#include <fcntl.h>
++#include <linux/videodev2.h>
++#include <poll.h>
++#include <stdexcept>
++#include <sys/ioctl.h>
++#include <sys/mman.h>
++#include <unistd.h>
++
++namespace camera
++{
++namespace
++{
++constexpr uint32_t kOutputBuffers = 8;
++constexpr uint32_t kCaptureBuffers = 4;
++constexpr size_t kCaptureBufferSize = 1 << 20;
++constexpr std::chrono::milliseconds kEncodeTimeout {500};
++
++int
++xioctl(int fd, unsigned long request, void *arg)
++{
++  int ret;
++  do {
++    ret = ioctl(fd, request, arg);
++  } while (ret == -1 && errno == EINTR);
++  return ret;
++}
++
++std::runtime_error
++error(const std::string &what)
++{
++  return std::runtime_error("H.264 encoder: " + what + ": " + std::strerror(errno));
++}
++
++// Returns whether an Annex B buffer contains a picture slice, and whether one
++// of them is an IDR slice.
++void
++scan_nal_units(const uint8_t *data, size_t size, bool &has_slice, bool &has_idr)
++{
++  has_slice = false;
++  has_idr = false;
++  for (size_t i = 0; i + 3 < size; ++i) {
++    if (data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 1) {
++      const uint8_t type = data[i + 3] & 0x1f;
++      has_slice |= type >= 1 && type <= 5;
++      has_idr |= type == 5;
++      i += 2;
++    }
++  }
++}
++} // namespace
++
++H264Encoder::H264Encoder(const Config &config)
++{
++  fd = open(config.device.c_str(), O_RDWR | O_NONBLOCK | O_CLOEXEC);
++  if (fd < 0)
++    throw error("cannot open " + config.device);
++
++  try {
++    setControl(V4L2_CID_MPEG_VIDEO_BITRATE, config.bitrate, true);
++    setControl(V4L2_CID_MPEG_VIDEO_H264_PROFILE, V4L2_MPEG_VIDEO_H264_PROFILE_HIGH, false);
++    setControl(V4L2_CID_MPEG_VIDEO_H264_LEVEL, V4L2_MPEG_VIDEO_H264_LEVEL_4_1, false);
++    setControl(V4L2_CID_MPEG_VIDEO_H264_I_PERIOD, config.intra_period, true);
++    // Foxglove can join a running stream only at a keyframe that carries SPS/PPS.
++    setControl(V4L2_CID_MPEG_VIDEO_REPEAT_SEQ_HEADER, 1, true);
++
++    v4l2_format output_format {};
++    output_format.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
++    output_format.fmt.pix_mp.width = config.width;
++    output_format.fmt.pix_mp.height = config.height;
++    output_format.fmt.pix_mp.pixelformat = config.pixelformat;
++    output_format.fmt.pix_mp.field = V4L2_FIELD_NONE;
++    output_format.fmt.pix_mp.colorspace = config.colorspace;
++    output_format.fmt.pix_mp.num_planes = 1;
++    output_format.fmt.pix_mp.plane_fmt[0].bytesperline = config.stride;
++    if (xioctl(fd, VIDIOC_S_FMT, &output_format) < 0)
++      throw error("cannot set input format");
++    if (output_format.fmt.pix_mp.pixelformat != config.pixelformat ||
++        output_format.fmt.pix_mp.plane_fmt[0].bytesperline != config.stride) {
++      errno = EINVAL;
++      throw error("input format or stride not accepted");
++    }
++
++    v4l2_format capture_format {};
++    capture_format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
++    capture_format.fmt.pix_mp.width = config.width;
++    capture_format.fmt.pix_mp.height = config.height;
++    capture_format.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_H264;
++    capture_format.fmt.pix_mp.field = V4L2_FIELD_ANY;
++    capture_format.fmt.pix_mp.colorspace = config.colorspace;
++    capture_format.fmt.pix_mp.num_planes = 1;
++    capture_format.fmt.pix_mp.plane_fmt[0].sizeimage = kCaptureBufferSize;
++    if (xioctl(fd, VIDIOC_S_FMT, &capture_format) < 0)
++      throw error("cannot set H.264 format");
++
++    // The frame rate only feeds the encoder's rate control.
++    v4l2_streamparm parm {};
++    parm.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
++    parm.parm.output.timeperframe.numerator = 1;
++    parm.parm.output.timeperframe.denominator = config.framerate;
++    if (xioctl(fd, VIDIOC_S_PARM, &parm) < 0)
++      throw error("cannot set frame rate");
++
++    v4l2_requestbuffers output_request {};
++    output_request.count = kOutputBuffers;
++    output_request.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
++    output_request.memory = V4L2_MEMORY_DMABUF;
++    if (xioctl(fd, VIDIOC_REQBUFS, &output_request) < 0)
++      throw error("cannot request input buffers");
++    output_count = output_request.count;
++
++    v4l2_requestbuffers capture_request {};
++    capture_request.count = kCaptureBuffers;
++    capture_request.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
++    capture_request.memory = V4L2_MEMORY_MMAP;
++    if (xioctl(fd, VIDIOC_REQBUFS, &capture_request) < 0)
++      throw error("cannot request output buffers");
++
++    for (uint32_t i = 0; i < capture_request.count; ++i) {
++      v4l2_plane plane {};
++      v4l2_buffer buffer {};
++      buffer.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
++      buffer.memory = V4L2_MEMORY_MMAP;
++      buffer.index = i;
++      buffer.length = 1;
++      buffer.m.planes = &plane;
++      if (xioctl(fd, VIDIOC_QUERYBUF, &buffer) < 0)
++        throw error("cannot query output buffer");
++      void *data = mmap(nullptr, plane.length, PROT_READ | PROT_WRITE, MAP_SHARED, fd,
++                        plane.m.mem_offset);
++      if (data == MAP_FAILED)
++        throw error("cannot map output buffer");
++      capture_buffers.push_back({data, plane.length});
++      if (xioctl(fd, VIDIOC_QBUF, &buffer) < 0)
++        throw error("cannot queue output buffer");
++    }
++
++    v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
++    if (xioctl(fd, VIDIOC_STREAMON, &type) < 0)
++      throw error("cannot start input stream");
++    type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
++    if (xioctl(fd, VIDIOC_STREAMON, &type) < 0)
++      throw error("cannot start output stream");
++  }
++  catch (...) {
++    cleanup();
++    throw;
++  }
++}
++
++H264Encoder::~H264Encoder()
++{
++  cleanup();
++}
++
++void
++H264Encoder::cleanup()
++{
++  if (fd < 0)
++    return;
++  v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
++  xioctl(fd, VIDIOC_STREAMOFF, &type);
++  type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
++  xioctl(fd, VIDIOC_STREAMOFF, &type);
++  for (const CaptureBuffer &buffer : capture_buffers)
++    munmap(buffer.data, buffer.size);
++  capture_buffers.clear();
++  close(fd);
++  fd = -1;
++}
++
++void
++H264Encoder::setControl(uint32_t id, int32_t value, bool required)
++{
++  v4l2_control control {};
++  control.id = id;
++  control.value = value;
++  if (xioctl(fd, VIDIOC_S_CTRL, &control) < 0 && required)
++    throw error("cannot set control " + std::to_string(id));
++}
++
++void
++H264Encoder::forceKeyframe()
++{
++  keyframe_requested = true;
++}
++
++bool
++H264Encoder::encode(int dmabuf_fd, size_t bytesused, size_t length, int64_t timestamp_us,
++                    std::vector<uint8_t> &out, bool &keyframe)
++{
++  if (keyframe_requested) {
++    setControl(V4L2_CID_MPEG_VIDEO_FORCE_KEY_FRAME, 1, false);
++    keyframe_requested = false;
++  }
++
++  // Keep a stable input index per libcamera dmabuf so the driver can reuse
++  // its import instead of mapping the buffer again for every frame.
++  auto [slot, inserted] = output_index.try_emplace(dmabuf_fd, 0);
++  if (inserted)
++    slot->second = (output_index.size() - 1) % output_count;
++
++  v4l2_plane input_plane {};
++  input_plane.m.fd = dmabuf_fd;
++  input_plane.bytesused = bytesused;
++  input_plane.length = length;
++  v4l2_buffer input {};
++  input.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
++  input.memory = V4L2_MEMORY_DMABUF;
++  input.index = slot->second;
++  input.field = V4L2_FIELD_NONE;
++  input.length = 1;
++  input.m.planes = &input_plane;
++  input.timestamp.tv_sec = timestamp_us / 1000000;
++  input.timestamp.tv_usec = timestamp_us % 1000000;
++  if (xioctl(fd, VIDIOC_QBUF, &input) < 0)
++    throw error("cannot queue frame");
++
++  bool input_released = false;
++  bool frame_ready = false;
++  const auto deadline = std::chrono::steady_clock::now() + kEncodeTimeout;
++  while (!input_released || !frame_ready) {
++    const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
++      deadline - std::chrono::steady_clock::now());
++    if (remaining.count() <= 0)
++      return false;
++    pollfd pfd {fd, static_cast<short>(POLLIN | POLLOUT), 0};
++    if (poll(&pfd, 1, static_cast<int>(remaining.count())) < 0 && errno != EINTR)
++      throw error("poll failed");
++
++    if (!input_released) {
++      v4l2_plane plane {};
++      v4l2_buffer buffer {};
++      buffer.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
++      buffer.memory = V4L2_MEMORY_DMABUF;
++      buffer.length = 1;
++      buffer.m.planes = &plane;
++      if (xioctl(fd, VIDIOC_DQBUF, &buffer) == 0)
++        input_released = true;
++      else if (errno != EAGAIN)
++        throw error("cannot dequeue frame");
++    }
++
++    if (!frame_ready) {
++      v4l2_plane plane {};
++      v4l2_buffer buffer {};
++      buffer.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
++      buffer.memory = V4L2_MEMORY_MMAP;
++      buffer.length = 1;
++      buffer.m.planes = &plane;
++      if (xioctl(fd, VIDIOC_DQBUF, &buffer) == 0) {
++        const auto *data =
++          static_cast<const uint8_t *>(capture_buffers.at(buffer.index).data) + plane.data_offset;
++        const size_t size = plane.bytesused - plane.data_offset;
++        bool has_slice = false;
++        bool has_idr = false;
++        scan_nal_units(data, size, has_slice, has_idr);
++        pending_headers.insert(pending_headers.end(), data, data + size);
++        if (has_slice) {
++          out.swap(pending_headers);
++          pending_headers.clear();
++          keyframe = has_idr;
++          frame_ready = true;
++        }
++        if (xioctl(fd, VIDIOC_QBUF, &buffer) < 0)
++          throw error("cannot requeue output buffer");
++      }
++      else if (errno != EAGAIN) {
++        throw error("cannot dequeue H.264 data");
++      }
++    }
++  }
++  return true;
++}
++
++} // namespace camera
+diff --git a/src/H264Encoder.hpp b/src/H264Encoder.hpp
+new file mode 100644
+index 0000000..b19fbcf
+--- /dev/null
++++ b/src/H264Encoder.hpp
+@@ -0,0 +1,68 @@
++#pragma once
++#include <cstddef>
++#include <cstdint>
++#include <string>
++#include <unordered_map>
++#include <vector>
++
++namespace camera
++{
++// Synchronous H.264 encoder on a V4L2 memory-to-memory device (Raspberry Pi
++// bcm2835-codec). Frames are imported from libcamera's dmabufs, so no pixel
++// data passes through the CPU.
++class H264Encoder
++{
++public:
++  struct Config
++  {
++    std::string device;
++    uint32_t width;
++    uint32_t height;
++    uint32_t stride;
++    uint32_t pixelformat;
++    uint32_t colorspace;
++    int bitrate;
++    int intra_period;
++    int framerate;
++  };
++
++  explicit H264Encoder(const Config &config);
++
++  ~H264Encoder();
++
++  H264Encoder(const H264Encoder &) = delete;
++  H264Encoder &
++  operator=(const H264Encoder &) = delete;
++
++  // Encodes one frame and waits until the encoder has released the input
++  // buffer. On success, "out" holds one Annex B access unit; parameter sets
++  // emitted separately by the encoder are prepended to the next frame.
++  bool
++  encode(int dmabuf_fd, size_t bytesused, size_t length, int64_t timestamp_us,
++         std::vector<uint8_t> &out, bool &keyframe);
++
++  void
++  forceKeyframe();
++
++private:
++  struct CaptureBuffer
++  {
++    void *data;
++    size_t size;
++  };
++
++  int fd = -1;
++  uint32_t output_count = 0;
++  std::unordered_map<int, uint32_t> output_index;
++  std::vector<CaptureBuffer> capture_buffers;
++  std::vector<uint8_t> pending_headers;
++  bool keyframe_requested = false;
++
++  void
++  setControl(uint32_t id, int32_t value, bool required);
++
++  void
++  cleanup();
++};
++
++} // namespace camera

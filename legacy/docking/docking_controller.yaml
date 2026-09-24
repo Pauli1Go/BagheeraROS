@@ -1,0 +1,69 @@
+bagheera_docking_controller:
+  ros__parameters:
+    # The current AMCL startup pose was measured with base_link parked in the
+    # dock. Start visual guidance 1.30 m ahead of contact; align the axle to
+    # the dock axis at 0.85 m and check the straight corridor again at 0.55 m.
+    dock_pose_x: 1.192
+    dock_pose_y: 1.884
+    dock_pose_yaw: 1.527
+    staging_distance_m: 1.30
+    navigation_timeout_s: 120.0
+    acquire_timeout_s: 8.0
+    tag_timeout_s: 1.0
+    tag_loss_timeout_s: 6.0
+    # AprilTag corners now arrive in native 1920x1080 pixel coordinates.
+    vision_scale: 1.0
+    minimum_decision_margin: 15.0
+    bearing_gain: 0.5
+    maximum_angular_speed_rps: 0.20
+    maximum_driving_angular_speed_rps: 0.16
+    maximum_coarse_angular_speed_rps: 0.16
+    heading_gain: 1.5
+    maximum_intercept_angle_rad: 0.3490658503988659
+    camera_lever_arm_m: 0.4334103944436625
+    # ID 1 is on the charging dock and owns centering/final contact. ID 0 is
+    # on the wall and supplies the early axis angle when ID 1 is too small.
+    # References come from the successful manual docking recording.
+    small_tag_heading_reference_rad: 0.04066617157146788
+    # ID 0 measures the dock-axis angle at ~0.55 m, while ID 1 still defines
+    # the target center. Calibrated against the manual docking recording.
+    large_tag_heading_reference_rad: 0.024434609527920613
+    small_tag_lateral_reference_m: -0.008
+    approach_speed_far_mps: 0.10
+    approach_speed_alignment_mps: 0.08
+    approach_speed_near_mps: 0.05
+    align_tolerance_rad: 0.05235987755982989
+    realign_threshold_rad: 0.13962634015954636
+    axis_alignment_range_m: 0.85
+    # Reject large offsets before rotating into a narrow dock approach.
+    # A retry backs up with Nav2 collision checks, then restages laterally.
+    axis_lateral_tolerance_m: 0.07
+    axis_bearing_tolerance_rad: 1.5707963267948966
+    axis_alignment_timeout_s: 4.0
+    axis_heading_tolerance_rad: 0.05235987755982989
+    straight_gate_range_m: 0.55
+    straight_gate_lateral_tolerance_m: 0.08
+    backoff_distance_m: 0.50
+    backoff_speed_mps: 0.08
+    maximum_retries: 2
+    terminal_lateral_tolerance_m: 0.015
+    # Learned from docking_record_20260921_115633. At the last valid ID 1
+    # frame the robot needed 4.3 cm of wheel travel before contact.
+    terminal_edge_pixels: 300.0
+    terminal_bearing_tolerance_rad: 0.10471975511965978
+    terminal_speed_mps: 0.07
+    terminal_distance_m: 0.065
+    terminal_timeout_s: 2.0
+    # ID-1-only approach accepts a visible tag from near or far. Only a
+    # lateral-offset retry uses Nav2's collision-checked BackUp action.
+    small_start_min_range_m: 0.12
+    small_start_max_range_m: 1.50
+    small_approach_speed_mps: 0.09
+    small_straighten_range_m: 0.48
+    small_pose_gate_range_m: 0.22
+    small_pose_max_lateral_m: 0.035
+    small_pose_max_heading_rad: 0.10471975511965978
+    small_max_travel_m: 1.60
+    electrical_contact_voltage: 0.5
+    dock_wait_timeout_s: 15.0
+
