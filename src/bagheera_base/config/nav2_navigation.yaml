@@ -37,7 +37,7 @@ controller_server:
     failure_tolerance: 0.3
     odom_topic: /odometry/filtered
     progress_checker_plugins: ["progress_checker"]
-    goal_checker_plugins: ["goal_checker"]
+    goal_checker_plugins: ["goal_checker", "precise_goal_checker"]
     controller_plugins: ["FollowPath"]
     progress_checker:
       # Unlike SimpleProgressChecker, this counts an in-place turn as real
@@ -53,6 +53,13 @@ controller_server:
       plugin: nav2_controller::SimpleGoalChecker
       xy_goal_tolerance: 0.10
       yaw_goal_tolerance: 0.15
+      stateful: true
+    # Only for the docking staging pose (behavior_trees/navigate_to_staging.xml):
+    # the same precision as the docking server's own return to staging.
+    precise_goal_checker:
+      plugin: nav2_controller::SimpleGoalChecker
+      xy_goal_tolerance: 0.05
+      yaw_goal_tolerance: 0.08726646259971647  # 5 deg
       stateful: true
     FollowPath:
       # RotationShim is normal path alignment, not a Spin recovery. It keeps
@@ -369,6 +376,8 @@ docking_server:
     max_retries: 2
     # Closer than this to the staging pose: start visually without Nav2.
     dock_prestaging_tolerance: 0.15
+    # Staging navigation uses the precise goal checker (5 cm / 5 deg).
+    navigator_bt_xml: /bagheera_ws/install/share/bagheera_base/behavior_trees/navigate_to_staging.xml
 
     dock_plugins: ["bagheera_dock"]
     bagheera_dock:
@@ -399,10 +408,11 @@ docking_server:
       max_yaw_jump: 0.17
       # ID 1 leaves the image ~4 cm before contact: hold its last pose there.
       hold_distance: 0.30
-      # Nav2's curve ends at this pre-dock pose on the dock axis, 12 cm in
-      # front of contact; bagheera_dock_trigger drives the rest straight. At
-      # the pins the curve was still turning (+-14 deg, contacts 3 cm off).
-      pre_dock_distance: 0.12
+      # Nav2's curve ends at this pre-dock pose on the dock axis, in front of
+      # contact; bagheera_dock_trigger drives the rest straight. At the pins
+      # the curve was still turning (+-14 deg, contacts 3 cm off); at 12 cm
+      # it still sometimes missed the dock's floor rail, hence 17 cm.
+      pre_dock_distance: 0.17
       # Off-axis at the pre-dock line: report a lost detection so that Nav2
       # retries from staging at once instead of waiting 20 s for charge. It
       # docked with the pins 1.5 cm off axis; the straight drive trims ~1 cm.

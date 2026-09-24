@@ -177,7 +177,9 @@ Docking uses Nav2's `opennav_docking` server with Bagheera's own dock plugin
 1. **Staging.** The staging pose is map `(1.218, 1.252, 1.607 rad)`, about
    0.63 m in front of the dock with both tags in view. It is configured as a
    rigid offset from `home_dock` (`staging_x/y/yaw_offset`). If the robot is
-   more than 15 cm away, Nav2 drives there first.
+   more than 15 cm away, Nav2 drives there first. That drive uses
+   `behavior_trees/navigate_to_staging.xml` with a 5 cm / 5 deg goal checker
+   (normal goals keep 10 cm / 8.6 deg).
 2. **Initial perception.** The camera is switched on only now. Two
    `tagStandard41h12` tags are used: ID 1 (48 mm printed, 26.67 mm pose edge)
    on the dock gives the dock *position*; ID 0 (160 mm printed, 88.89 mm pose
@@ -188,10 +190,10 @@ Docking uses Nav2's `opennav_docking` server with Bagheera's own dock plugin
 3. **Approach.** Nav2's graceful docking controller converges position *and*
    heading onto the dock axis at 0.05-0.10 m/s, with costmap collision
    checking except for the last 15 cm in front of the dock. Its target is a
-   pre-dock pose 12 cm in front of the contact pose, so the curve is finished
+   pre-dock pose 17 cm in front of the contact pose, so the curve is finished
    before the charging pins (at the pins it still turned by +-14 degrees).
 4. **Straight final approach and contact.** At the pre-dock pose the server
-   waits for charge while `bagheera_dock_trigger` drives the last 12 cm
+   waits for charge while `bagheera_dock_trigger` drives the last 17 cm
    straight at 0.05 m/s with gyro heading hold and a trim of at most 4 degrees.
    It stops at contact voltage (`v_charge >= 0.5 V`) or 3 cm past the contact
    pose. The heading may still be off by up to 10 degrees at hand-over; the
