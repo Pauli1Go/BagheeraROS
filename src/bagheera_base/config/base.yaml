@@ -1,18 +1,3 @@
-bagheera_base_driver:
-  ros__parameters:
-    port: /dev/mowgli
-    baud_rate: 115200
-    reconnect_interval: 2.0
-    command_rate: 20.0
-    command_timeout: 0.5
-    allow_unsafe_firmware: false
-    odom_frame: odom
-    base_frame: base_link
-    external_imu_frame: imu_link
-    onboard_imu_frame: base_link
-    publish_tf: true
-    axle_to_base_link_m: 0.0
-
 bagheera_battery_monitor:
   ros__parameters:
     power_topic: /hardware_bridge/power

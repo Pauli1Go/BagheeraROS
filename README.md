@@ -458,9 +458,7 @@ The camera, LiDAR and optical-flow wiring checks, detected hardware revisions
 and reproducible standalone probes are documented in
 [`docs/hardware-bringup.md`](docs/hardware-bringup.md).
 
-The old Python `base_driver.py` and its `MW` protocol implementation remain in
-the repository only as migration reference. `manual_control.launch.py` never
-starts them; the only process opening `/dev/mowgli` is MowgliNext's C++ bridge.
+The only process opening `/dev/mowgli` is MowgliNext's C++ bridge.
 
 Pure-Python tests can also run on a development machine without ROS installed:
 

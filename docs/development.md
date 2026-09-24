@@ -94,6 +94,3 @@ Hardware smoke-test order:
    separately; every case must stop motion.
 6. Only then test on the floor and calibrate `ticks_per_meter`, `wheel_track`
    and drive/yaw PID parameters.
-
-Do not run the old `bagheera_base_driver` against MowgliNext firmware. It speaks
-the retired `MW` protocol and is retained only to document the previous PoC.

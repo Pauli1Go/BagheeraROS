@@ -12,7 +12,6 @@
 ## Milestone 2: stable Bagheera platform
 
 - calibrate wheel track, encoder scale and drive/yaw controllers
-- remove the retired custom `MW` driver after hardware migration is accepted
 - migrate the deployment from short-lived ROS 2 Kilted to a supported LTS
 - add service supervision and boot-time health reporting
 
