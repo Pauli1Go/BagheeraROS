@@ -11,7 +11,7 @@ from nav_msgs.msg import OccupancyGrid, Odometry
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 
 
 def _yaw(pose) -> float:
@@ -28,6 +28,8 @@ class LocalizationExclusionGuard(Node):
         self.declare_parameter("mask_topic", "/localization_exclusion_mask")
         self.declare_parameter("occupied_threshold", 50)
         self.declare_parameter("reset_cooldown_s", 1.0)
+        self.declare_parameter("odom_topic", "/odometry/filtered")
+        self._odom_topic = str(self.get_parameter("odom_topic").value)
         self._threshold = int(self.get_parameter("occupied_threshold").value)
         self._cooldown = float(self.get_parameter("reset_cooldown_s").value)
         self._mask: OccupancyGrid | None = None
@@ -55,9 +57,34 @@ class LocalizationExclusionGuard(Node):
         self.create_subscription(
             PoseWithCovarianceStamped, "/amcl_pose", self._on_pose, 20
         )
+        # No odometry while bagheera_dock_sleep sleeps: nothing moves in the
+        # dock, and AMCL publishes no poses without scans.
+        self._odom_subscription = None
+        self._want_odom(True)
         self.create_subscription(
-            Odometry, "/odometry/filtered", self._on_odom, 20
+            String, "/dock/sleep_state", self._on_sleep_state, latched_qos
         )
+
+    def _want_odom(self, wanted: bool) -> None:
+        if wanted and self._odom_subscription is None:
+            self._odom_subscription = self.create_subscription(
+                Odometry, self._odom_topic, self._on_odom, 20
+            )
+        elif not wanted and self._odom_subscription is not None:
+            self.destroy_subscription(self._odom_subscription)
+            self._odom_subscription = None
+            self._odom = None
+
+    def _on_sleep_state(self, message: String) -> None:
+        sleeping = message.data == "sleeping"
+        if sleeping == (self._odom_subscription is None):
+            return
+        self._want_odom(not sleeping)
+        if not sleeping:
+            # The wake-up resets the EKF and re-anchors AMCL to the dock; the
+            # next valid AMCL pose seeds the odometry prediction again.
+            self._last_valid = None
+            self._last_valid_odom = None
 
     def _on_odom(self, message: Odometry) -> None:
         self._odom = message

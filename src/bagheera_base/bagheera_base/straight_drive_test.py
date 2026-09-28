@@ -540,7 +540,7 @@ def main(argv=None) -> None:
 
         bag = _start_bag(output, args.include_camera)
         time.sleep(2.0)
-        print(f"Modus {args.mode}: {args.distance:.2f} m geradeaus.")
+        print(f"Mode {args.mode}: {args.distance:.2f} m straight ahead.")
         for remaining in range(max(0, args.countdown), 0, -1):
             print(f"Start in {remaining} ...", flush=True)
             time.sleep(1.0)
@@ -561,7 +561,7 @@ def main(argv=None) -> None:
                     result_label = "distance_reached"
                     break
                 if progress >= next_report:
-                    print(f"EKF-Fortschritt: {progress:.2f} m", flush=True)
+                    print(f"EKF progress: {progress:.2f} m", flush=True)
                     next_report += 0.5
                 time.sleep(0.05)
             else:
@@ -604,16 +604,16 @@ def main(argv=None) -> None:
             if status != GoalStatus.STATUS_SUCCEEDED:
                 raise RuntimeError(f"Nav2 goal {result_label}")
 
-        print(f"Fahrt beendet; zeichne noch {args.cooldown:.1f} s auf.")
+        print(f"Drive finished; recording for another {args.cooldown:.1f} s.")
         time.sleep(args.cooldown)
     except KeyboardInterrupt:
         failed = True
         result_label = "interrupted"
-        print("\nAbgebrochen.")
+        print("\nAborted.")
     except Exception as error:
         failed = True
         result_label = f"failed: {error}"
-        print(f"Test fehlgeschlagen: {error}")
+        print(f"Test failed: {error}")
     finally:
         node.stop_direct()
         if goal_handle is not None and result_label not in ("succeeded",):
@@ -639,7 +639,7 @@ def main(argv=None) -> None:
         thread.join(timeout=2.0)
         node.destroy_node()
         rclpy.try_shutdown()
-    print(f"Auswertung gespeichert: {output}")
+    print(f"Report saved: {output}")
     if failed:
         raise SystemExit(1)
 

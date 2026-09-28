@@ -7,8 +7,8 @@ from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, FindExecutable, LaunchConfiguration, PythonExpression
-from launch_ros.actions import Node
-from launch_ros.descriptions import ParameterValue
+from launch_ros.actions import LoadComposableNodes, Node
+from launch_ros.descriptions import ComposableNode, ParameterValue
 
 
 def _robot_description(package_share: Path, robot_config: Path) -> dict:
@@ -52,6 +52,22 @@ def _robot_description(package_share: Path, robot_config: Path) -> dict:
     for name in argument_names:
         command.extend((f" {name}:=", str(values[name])))
     return {"robot_description": ParameterValue(Command(command), value_type=str)}
+
+
+def _dock_pose(nav2_navigation_config: str) -> dict:
+    # Single source of the dock pose: the docking server's first dock.
+    with open(nav2_navigation_config, encoding="utf-8") as handle:
+        docking = yaml.safe_load(handle)["docking_server"]["ros__parameters"]
+    x, y, yaw = docking[docking["docks"][0]]["pose"]
+    return {"dock_x": float(x), "dock_y": float(y), "dock_yaw": float(yaw)}
+
+
+def _controller_enabled(base_config: str) -> bool:
+    # The game-controller node polls the joystick all the time (~10 % of a
+    # core on the Pi 4); it only starts when base.yaml enables it.
+    with open(base_config, encoding="utf-8") as handle:
+        values = yaml.safe_load(handle)["bagheera_controller"]["ros__parameters"]
+    return bool(values.get("enabled", False))
 
 
 def generate_launch_description():
@@ -278,6 +294,32 @@ def generate_launch_description():
             ])
         ),
     )
+    # 5 Hz copy of the EKF output for Python nodes that only need a recent
+    # pose (pose persistence, localization exclusion guard). Every message
+    # into a Python node costs ~2-3 ms of executor overhead on the Pi 4;
+    # the C++ throttle in the existing container costs almost nothing.
+    odometry_throttle = LoadComposableNodes(
+        target_container="nav2_container",
+        composable_node_descriptions=[
+            ComposableNode(
+                package="topic_tools",
+                plugin="topic_tools::ThrottleNode",
+                name="odometry_throttle",
+                parameters=[{
+                    "input_topic": "/odometry/filtered",
+                    "output_topic": "/odometry/filtered_throttled",
+                    "throttle_type": "messages",
+                    "msgs_per_sec": 5.0,
+                }],
+            ),
+        ],
+        condition=IfCondition(
+            PythonExpression([
+                "'", use_map_localization, "' == 'true' or '",
+                use_navigation, "' == 'true'",
+            ])
+        ),
+    )
     map_localization = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             str(
@@ -301,7 +343,7 @@ def generate_launch_description():
         executable="bagheera_pose_persistence",
         name="bagheera_pose_persistence",
         output="screen",
-        parameters=[nav2_localization_config],
+        parameters=[nav2_localization_config, _dock_pose(nav2_navigation_config)],
         condition=IfCondition(use_map_localization),
     )
     navigation = IncludeLaunchDescription(
@@ -345,7 +387,9 @@ def generate_launch_description():
             hardware_bridge,
             twist_mux,
             mode,
-            controller,
+        ]
+        + ([controller] if _controller_enabled(base_config) else [])
+        + [
             measurement_normalizer,
             dock_sleep,
             battery_monitor,
@@ -355,6 +399,7 @@ def generate_launch_description():
             camera,
             ekf,
             nav2_container,
+            odometry_throttle,
             map_localization,
             pose_persistence,
             navigation,

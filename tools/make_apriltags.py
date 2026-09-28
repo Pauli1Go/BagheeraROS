@@ -8,7 +8,7 @@ AprilRobotics/apriltag (apriltag.c) for tagStandard41h12:
 Print-scale compensation: pass --print-scale (measured/true, e.g. 0.96)
 so the printed tag matches --size-mm after the printer's scaling.
 
-Detection size ("Erkennungsgröße") = outer black edge, excl. quiet zone.
+Detection size = outer black edge, excl. quiet zone.
 
 Example:
     python3 tools/make_apriltags.py --out ~/Downloads/apriltags.pdf
@@ -96,9 +96,9 @@ def page(tag_id: int, size_pdf_mm: float, size_true_mm: float) -> str:
     lines = [
         f"Erkennungsgroesse (schwarze Aussenkante, echt): {size_true_mm:.0f} mm",
         f"Im PDF: {size_pdf_mm:.2f} mm (Druckskala 96 % bereits rausgerechnet)",
-        "Drucken: A4, 100 % / Tatsaechliche Groesse, nicht skalieren.",
-        "Kontrolle mit Lineal: schwarze Aussenkante messen.",
-        "Ruhigzone: weisser Rand um das Tag freihalten.",
+        "Print on A4 at 100 % / actual size, do not scale.",
+        "Check with a ruler: measure the outer black edge.",
+        "Quiet zone: keep the white margin around the tag clear.",
     ]
     y = 24 * MM
     for line in lines:

@@ -119,9 +119,9 @@ def main(argv=None) -> None:
         if not node.ready():
             raise RuntimeError("WT901 gyro or /cmd_vel_tuning is unavailable")
 
-        print(f"Gyro-Offset wird {args.bias_time:.1f} s im Stillstand gemessen.")
+        print(f"Measuring the gyro offset for {args.bias_time:.1f} s at standstill.")
         bias = node.estimate_bias(args.bias_time)
-        print(f"Gyro-Offset: {bias:+.5f} rad/s")
+        print(f"Gyro offset: {bias:+.5f} rad/s")
         for remaining in range(max(0, args.countdown), 0, -1):
             print(f"Start in {remaining} ...", flush=True)
             time.sleep(1.0)
@@ -146,19 +146,19 @@ def main(argv=None) -> None:
             node.publish(math.copysign(speed, remaining))
             progress = abs(math.degrees(angle))
             if progress >= next_report:
-                print(f"Gyro-Winkel: {math.degrees(angle):+.1f} deg")
+                print(f"Gyro angle: {math.degrees(angle):+.1f} deg")
                 next_report += 45.0
             time.sleep(0.04)
         else:
             raise TimeoutError(f"360 degrees not reached within {args.timeout:.1f} s")
         node.stop()
-        print(f"Fertig: Gyro-Winkel {math.degrees(node.angle()):+.1f} deg")
+        print(f"Done: gyro angle {math.degrees(node.angle()):+.1f} deg")
     except KeyboardInterrupt:
         failed = True
-        print("\nAbgebrochen.")
+        print("\nAborted.")
     except Exception as error:
         failed = True
-        print(f"Test fehlgeschlagen: {error}")
+        print(f"Test failed: {error}")
     finally:
         node.stop()
         executor.shutdown()

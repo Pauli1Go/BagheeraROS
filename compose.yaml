@@ -14,8 +14,14 @@ services:
     privileged: true
     environment:
       RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
-      CYCLONEDDS_URI: "<CycloneDDS><Domain><Discovery><ParticipantIndex>none</ParticipantIndex></Discovery></Domain></CycloneDDS>"
-      ROS_AUTOMATIC_DISCOVERY_RANGE: SUBNET
+      # ROS traffic stays on the loopback interface. On wlan0 every WiFi drop
+      # (roaming, DHCP renew) removed the address DDS was bound to and froze
+      # all node-to-node traffic inside the robot for seconds. Foxglove
+      # reaches the robot over its WebSocket (port 8765), not over DDS.
+      # LOCALHOST makes rmw_cyclonedds use unicast discovery via localhost
+      # (auto participant index); the limit is raised above the ~35 processes.
+      ROS_AUTOMATIC_DISCOVERY_RANGE: LOCALHOST
+      CYCLONEDDS_URI: '<CycloneDDS><Domain><General><Interfaces><NetworkInterface name="lo"/></Interfaces></General><Discovery><MaxAutoParticipantIndex>120</MaxAutoParticipantIndex></Discovery></Domain></CycloneDDS>'
       SDL_VIDEODRIVER: dummy
       SDL_AUDIODRIVER: dummy
       PYGAME_HIDE_SUPPORT_PROMPT: "1"
@@ -30,5 +36,6 @@ services:
       - ./src/bagheera_base/launch:/bagheera_ws/install/share/bagheera_base/launch:ro
       - ./src/bagheera_base/behavior_trees:/bagheera_ws/install/share/bagheera_base/behavior_trees:ro
       - ./maps:/bagheera_ws/maps
+      - ./test_logs:/bagheera_ws/test_logs
     restart: unless-stopped
     stop_grace_period: 2s

@@ -603,9 +603,9 @@ def main(argv=None) -> None:
         if not node.ready():
             raise RuntimeError("mapping must publish /map and map->lidar_link TF before this test")
         node.freeze_reference_map(output)
-        print("Referenzkarte fixiert. Gyro-Offset wird 2.0 s im Stillstand gemessen.")
+        print("Reference map frozen. Measuring the gyro offset for 2.0 s at standstill.")
         bias = node.estimate_bias(2.0)
-        print(f"Gyro-Offset: {bias:+.5f} rad/s")
+        print(f"Gyro offset: {bias:+.5f} rad/s")
         bag = _start_bag(output)
         time.sleep(2.0)
         if bag.poll() is not None:
@@ -640,14 +640,14 @@ def main(argv=None) -> None:
             if progress >= next_report:
                 print(
                     f"Gyro {math.degrees(angle):+.1f} deg, "
-                    f"{len(captures)} Scan/TF-Paare gespeichert"
+                    f"{len(captures)} scan/TF pairs stored"
                 )
                 next_report += 45.0
             time.sleep(0.04)
         else:
             raise TimeoutError("gyro did not reach 360 degrees")
         node.stop()
-        print(f"Drehung fertig bei {math.degrees(node.gyro_angle()):+.1f} deg; beobachte SLAM noch {args.cooldown:.1f} s.")
+        print(f"Turn finished at {math.degrees(node.gyro_angle()):+.1f} deg; observing SLAM for another {args.cooldown:.1f} s.")
         cooldown_end = time.monotonic() + args.cooldown
         while time.monotonic() < cooldown_end:
             capture = node.capture_latest()
@@ -657,11 +657,11 @@ def main(argv=None) -> None:
     except KeyboardInterrupt:
         failed = True
         failure_reason = "interrupted"
-        print("\nAbgebrochen.")
+        print("\nAborted.")
     except Exception as error:
         failed = True
         failure_reason = str(error)
-        print(f"Test fehlgeschlagen: {error}")
+        print(f"Test failed: {error}")
     finally:
         node.stop()
         if bag is not None and bag.poll() is None:
@@ -671,13 +671,13 @@ def main(argv=None) -> None:
             except subprocess.TimeoutExpired:
                 bag.terminate()
         if captures:
-            print(f"Werte {len(captures)} zeitgestempelte Scan/TF-Paare aus ...")
+            print(f"Evaluating {len(captures)} time-stamped scan/TF pairs ...")
             next_progress = 10
             for index, capture in enumerate(captures, start=1):
                 rows.append(node.analyse_capture(capture))
                 progress = int(100 * index / len(captures))
                 if progress >= next_progress:
-                    print(f"  Auswertung {progress}%", flush=True)
+                    print(f"  Evaluation {progress}%", flush=True)
                     next_progress += 10
         if rows:
             with (output / "shift_samples.csv").open("w", newline="", encoding="utf-8") as handle:
@@ -699,7 +699,7 @@ def main(argv=None) -> None:
         thread.join(timeout=2.0)
         node.destroy_node()
         rclpy.try_shutdown()
-        print(f"Auswertung gespeichert: {output}")
+        print(f"Report saved: {output}")
         for conclusion in report["conclusions"]:
             print(f"  - {conclusion}")
     if failed:

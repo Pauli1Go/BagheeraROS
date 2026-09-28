@@ -1,0 +1,43 @@
+bagheera_patrol:
+  ros__parameters:
+    # Closed loop in map coordinates: x [m], y [m], yaw [rad] per waypoint,
+    # driven in this order and back to the first.
+    # EXAMPLE VALUES from the Bagheera office map: replace them with
+    # waypoints of your own map (docs/config/patrol.md). Clicked in Foxglove as
+    # /initialpose on 2026-09-24; every footprint was checked against /map
+    # and the keepout mask, and NavFn found a path for every leg (~69 m/lap).
+    waypoints: [
+      -2.002, 4.656, 1.604,   # 1
+      -2.227, 5.788, -3.055,   # 2
+      -2.854, 5.242, -1.464,   # 3
+      -9.218, -10.157, 1.863,   # 4
+      -10.989, -11.314, -1.664,   # 5
+      -11.934, -16.856, -1.595,   # 6
+      -11.195, -18.174, 0.137,   # 7
+      -10.008, -17.469, 1.940,   # 8
+      -8.129, -14.475, 0.483,   # 9
+      -2.393, -13.797, -0.429,   # 10
+      -0.737, -13.364, 1.673     # 11
+    ]
+    # dock_cycle mode: time in the dock between two laps.
+    dock_pause_s: 60.0
+    # /dock/trigger attempts per docking (each already includes Nav2's own
+    # three docking retries) before the patrol stops.
+    dock_attempts: 3
+    # A waypoint Nav2 aborts (its BT gives up after 2 recoveries)
+    # is skipped. This many skips in a row: dock and stop.
+    max_consecutive_failures: 3
+    # Costmap timeouts, TF errors, rejected goals and planner failures mean
+    # late navigation data, not an unreachable waypoint: drive to the same
+    # waypoint again after retry_delay_s, up to this many times, before it
+    # counts as a skip. Patience/progress/collision aborts skip at once.
+    max_transient_retries: 2
+    retry_delay_s: 3.0
+    # Safety net above the BT's own abort.
+    waypoint_timeout_s: 600.0
+    wake_timeout_s: 90.0
+    dock_start_timeout_s: 5.0
+    # Stop in the dock when FULL is not reached within this time.
+    max_charge_s: 21600.0
+    # Bind-mounted to ./test_logs on the host (compose.yaml).
+    log_dir: /bagheera_ws/test_logs

@@ -1,9 +1,12 @@
 """Persist the last map pose and anchor AMCL to the measured dock pose.
 
-The pose is sampled from TF map -> base_link (AMCL corrected by odometry)
-once per second and on shutdown. /amcl_pose alone is not enough: AMCL only
-publishes after 10 cm or ~6 deg of motion, so the final turn before a stop was
-often never saved, and a restart then restored a heading 40 deg off.
+The map pose is sampled once per second: the last /amcl_pose plus the
+odometry motion since that pose's scan (see pose_math). /amcl_pose alone is
+not enough: AMCL only publishes after 10 cm or ~6 deg of motion, so the final
+turn before a stop was often never saved, and a restart then restored a
+heading 40 deg off. Adding the odometry since the scan covers that turn, just
+like TF map -> base_link did, without a Python /tf listener that cost a large
+part of a core.
 """
 
 from __future__ import annotations
@@ -19,11 +22,12 @@ from geometry_msgs.msg import PoseWithCovarianceStamped
 from nav_msgs.msg import Odometry
 import rclpy
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
-from rclpy.time import Time
-from std_msgs.msg import Bool, UInt32
-from tf2_ros import Buffer, TransformException, TransformListener
+from std_msgs.msg import Bool, String, UInt32
 import yaml
+
+from .pose_math import OdomHistory, Pose2D, map_pose
 
 
 def _yaw(orientation) -> float:
@@ -42,15 +46,21 @@ class PosePersistence(Node):
         super().__init__("bagheera_pose_persistence")
         self.declare_parameter("pose_file", "/bagheera_ws/maps/last_pose.json")
         self.declare_parameter("map_file", "/bagheera_ws/maps/current.yaml")
-        self.declare_parameter("dock_x", 1.192)
-        self.declare_parameter("dock_y", 1.884)
-        self.declare_parameter("dock_yaw", 1.624)
+        # No defaults: the launch file passes docking_server.home_dock.pose.
+        self.declare_parameter("dock_x", Parameter.Type.DOUBLE)
+        self.declare_parameter("dock_y", Parameter.Type.DOUBLE)
+        self.declare_parameter("dock_yaw", Parameter.Type.DOUBLE)
         self.declare_parameter("save_min_distance_m", 0.02)
         self.declare_parameter("save_min_angle_rad", math.radians(1.0))
+        self.declare_parameter("odom_topic", "/odometry/filtered")
+        self._odom_topic = str(self.get_parameter("odom_topic").value)
         self._save_min_distance = float(self.get_parameter("save_min_distance_m").value)
         self._save_min_angle = float(self.get_parameter("save_min_angle_rad").value)
-        self._tf = Buffer()
-        self._tf_listener = TransformListener(self._tf, self)
+        # A throttled odometry topic arrives every 0.2 s; allow scans that
+        # far ahead of the newest sample.
+        self._odom_history = OdomHistory(max_extrapolation_s=0.5)
+        # Last AMCL pose and the odometry pose at its scan time.
+        self._amcl_anchor: tuple[Pose2D, Pose2D] | None = None
         self._path = Path(str(self.get_parameter("pose_file").value))
         self._map_file = Path(str(self.get_parameter("map_file").value))
         self._dock_pose = (
@@ -95,8 +105,12 @@ class PosePersistence(Node):
         self.create_subscription(
             PoseWithCovarianceStamped, "/initialpose", self._on_manual_pose, 10
         )
+        # No odometry while bagheera_dock_sleep sleeps: the pose is fixed in
+        # the dock, and the wake-up re-anchors AMCL before anything moves.
+        self._odom_subscription = None
+        self._want_odom(True)
         self.create_subscription(
-            Odometry, "/odometry/filtered", self._on_odom, 10
+            String, "/dock/sleep_state", self._on_sleep_state, dock_qos
         )
         self.create_timer(1.0, self._tick)
         if self._saved_pose is not None:
@@ -205,9 +219,24 @@ class PosePersistence(Node):
         self._publish_initialpose(self._dock_pose)
         self.get_logger().info("Re-anchoring AMCL to the dock pose before undocking")
 
+    def _want_odom(self, wanted: bool) -> None:
+        if wanted and self._odom_subscription is None:
+            self._odom_subscription = self.create_subscription(
+                Odometry, self._odom_topic, self._on_odom, 10
+            )
+        elif not wanted and self._odom_subscription is not None:
+            self.destroy_subscription(self._odom_subscription)
+            self._odom_subscription = None
+            self._odom_history.clear()
+
+    def _on_sleep_state(self, message: String) -> None:
+        self._want_odom(message.data != "sleeping")
+
     def _on_odom(self, message: Odometry) -> None:
         pose = message.pose.pose
         self._odom = (pose.position.x, pose.position.y, _yaw(pose.orientation))
+        stamp = message.header.stamp
+        self._odom_history.add(stamp.sec + stamp.nanosec * 1e-9, self._odom)
         if self._dock_state and self._last_good_odom is None:
             self._last_good_odom = self._odom
 
@@ -230,6 +259,7 @@ class PosePersistence(Node):
         candidate = (pose.position.x, pose.position.y, _yaw(pose.orientation))
         if not all(math.isfinite(value) for value in candidate):
             return
+        self._set_amcl_anchor(candidate, message.header.stamp)
         if self._dock_state:
             self._dock_pose_confirmed = (
                 math.hypot(
@@ -259,19 +289,29 @@ class PosePersistence(Node):
                 self.get_logger().info("Saved initial pose accepted by AMCL")
             else:
                 return
-        # Restore accepted: from now on _tick samples and saves the TF pose.
+        # Restore accepted: from now on _tick samples and saves the map pose.
+
+    def _set_amcl_anchor(self, pose: tuple[float, float, float], stamp) -> None:
+        odom = self._odom_history.at(stamp.sec + stamp.nanosec * 1e-9)
+        if odom is None:
+            # Scan outside the history (e.g. right after a wake-up, when the
+            # robot stands still in the dock): take the newest odometry.
+            latest = self._odom_history.latest()
+            if latest is None:
+                self._amcl_anchor = None
+                return
+            odom = latest[1]
+        self._amcl_anchor = (pose, odom)
 
     def _current_map_pose(self) -> tuple[float, float, float] | None:
-        try:
-            transform = self._tf.lookup_transform("map", "base_link", Time())
-        except TransformException:
+        anchor = self._amcl_anchor
+        latest = self._odom_history.latest()
+        if anchor is None or latest is None:
             return None
-        stamp = transform.header.stamp
-        age = self.get_clock().now().nanoseconds * 1e-9 - (stamp.sec + stamp.nanosec * 1e-9)
+        age = self.get_clock().now().nanoseconds * 1e-9 - latest[0]
         if age > 2.0:
             return None
-        t = transform.transform
-        pose = (t.translation.x, t.translation.y, _yaw(t.rotation))
+        pose = map_pose(anchor[0], anchor[1], latest[1])
         return pose if all(math.isfinite(value) for value in pose) else None
 
     def _save_current_pose(self) -> None:

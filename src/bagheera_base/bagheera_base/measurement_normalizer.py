@@ -39,6 +39,7 @@ class MeasurementNormalizer(Node):
         self.declare_parameter("base_frame_id", "base_link")
         self.declare_parameter("axle_to_base_link_m", 0.0)
         self.declare_parameter("imu_frame_id", "imu_link")
+        self.declare_parameter("imu_enabled", True)
         self.declare_parameter("camera_frame_id", "camera_optical_frame")
         self.declare_parameter("camera_width", 1920)
         self.declare_parameter("camera_height", 1080)
@@ -88,16 +89,18 @@ class MeasurementNormalizer(Node):
         )
 
         self._wheel_publisher = self.create_publisher(Odometry, "/wheel_odom", 20)
-        self._imu_publisher = self.create_publisher(Imu, "/imu/data", 20)
+        self._imu_enabled = bool(self.get_parameter("imu_enabled").value)
         self._camera_info_publisher = self.create_publisher(
             CameraInfo, "/camera/camera_info", 10
         )
         self._wheel_subscription = self.create_subscription(
             Odometry, "/wheel_odom_raw", self._normalize_wheel, 20
         )
-        self._imu_subscription = self.create_subscription(
-            Imu, "/imu/data_raw", self._normalize_imu, 20
-        )
+        if self._imu_enabled:
+            self._imu_publisher = self.create_publisher(Imu, "/imu/data", 20)
+            self._imu_subscription = self.create_subscription(
+                Imu, "/imu/data_raw", self._normalize_imu, 20
+            )
         self._camera_info_subscription = self.create_subscription(
             CameraInfo,
             "/camera/camera_info_raw",

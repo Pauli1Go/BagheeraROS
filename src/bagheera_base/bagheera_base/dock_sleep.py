@@ -5,7 +5,10 @@ In the dock the map pose is fixed, so nothing has to be observed there. After
 (its driver process runs under this node), and the WT901, the PMW3901 and the
 camera follow the latched ``/dock/sleep_state``. The costmaps' obstacle layers
 are disabled meanwhile; otherwise they warn several times a second that /scan
-is stale.
+is stale. The Nav2 navigation lifecycle nodes (controller, planner, behaviors,
+velocity smoother, BT navigator) are paused as well: without scans AMCL stops
+publishing map -> odom, and the global costmap then failed its robot-pose
+lookup twice a second while still costing half a core.
 
 A request on ``/dock/wake`` (sent by the autonomy dock guard or the teleop
 node, or by hand) wakes everything in this order:
@@ -16,7 +19,9 @@ node, or by hand) wakes everything in this order:
    enable the obstacle layers again (confirmed, otherwise no undocking);
 3. reset the EKF at its current pose (clears any velocity left from before);
 4. ask ``bagheera_pose_persistence`` to anchor AMCL to the dock pose again and
-   wait for AMCL to confirm it.
+   wait for AMCL to confirm it;
+5. resume the Nav2 navigation nodes and wait for the lifecycle manager to
+   confirm (``resuming``).
 
 Only then the state becomes ``awake`` and the guard starts the undock
 manoeuvre. A failed step ends in ``fault``: sensors stay on, autonomy stays
@@ -33,6 +38,7 @@ import time
 from geometry_msgs.msg import PoseWithCovarianceStamped, TwistStamped, TwistWithCovarianceStamped
 from lifecycle_msgs.msg import State
 from lifecycle_msgs.srv import GetState
+from nav2_msgs.srv import ManageLifecycleNodes
 from nav_msgs.msg import Odometry
 import rclpy
 from rclpy.executors import ExternalShutdownException
@@ -48,6 +54,7 @@ AWAKE = "awake"
 SLEEPING = "sleeping"
 WAKING = "waking"
 ANCHORING = "anchoring"
+RESUMING = "resuming"
 FAULT = "fault"
 
 
@@ -95,6 +102,9 @@ class DockSleep(Node):
         # map -> base_link to activate, which AMCL only publishes with scans.
         self.declare_parameter("navigation_enabled", True)
         self.declare_parameter("startup_nodes", ["/bt_navigator", "/docking_server"])
+        # Nav2 lifecycle manager whose nodes pause while asleep; "" disables it.
+        self.declare_parameter("navigation_manager", "/lifecycle_manager_navigation")
+        self.declare_parameter("navigation_resume_timeout_s", 30.0)
 
         self._sleep_delay = float(self.get_parameter("sleep_delay_s").value)
         self._wake_grace = float(self.get_parameter("wake_grace_s").value)
@@ -109,6 +119,7 @@ class DockSleep(Node):
         self._sensor_timeout = float(self.get_parameter("sensor_timeout_s").value)
         self._ekf_settle = float(self.get_parameter("ekf_settle_s").value)
         self._anchor_timeout = float(self.get_parameter("anchor_timeout_s").value)
+        self._nav_timeout = float(self.get_parameter("navigation_resume_timeout_s").value)
 
         self._state = AWAKE
         self._state_since = time.monotonic()
@@ -135,15 +146,30 @@ class DockSleep(Node):
             if bool(self.get_parameter("navigation_enabled").value)
             else []
         )
-        self._startup_clients = (
-            [
-                self.create_client(GetState, f"{str(name).rstrip('/')}/get_state")
-                for name in self.get_parameter("startup_nodes").value
-            ]
+        self._startup_names = (
+            [str(name).rstrip("/") for name in self.get_parameter("startup_nodes").value]
             if bool(self.get_parameter("navigation_enabled").value)
             else []
         )
+        self._startup_clients = [
+            self.create_client(GetState, f"{name}/get_state") for name in self._startup_names
+        ]
         self._startup_done = not self._startup_clients
+        manager = str(self.get_parameter("navigation_manager").value).rstrip("/")
+        self._nav_client = (
+            self.create_client(ManageLifecycleNodes, f"{manager}/manage_nodes")
+            if manager and bool(self.get_parameter("navigation_enabled").value)
+            else None
+        )
+        # Wanted and confirmed Nav2 state (True = active); None = unknown.
+        # Nav2 starts active with autostart.
+        self._nav_wanted = True
+        self._nav_confirmed: bool | None = True
+        self._nav_pending = False
+        self._nav_sent_at = 0.0
+        self._nav_retry_at = 0.0
+        self._nav_batch = 0
+        self._startup_inactive_since: float | None = None
         self._startup_active: set[int] = set()
         self._startup_pending = False
         self._startup_checked_at = 0.0
@@ -170,10 +196,9 @@ class DockSleep(Node):
         self.create_subscription(Bool, "/dock/wake", self._on_wake, 10)
         self.create_subscription(Bool, "/dock/sleep_request", self._on_sleep_request, 10)
         self.create_subscription(UInt32, "/dock/pose_anchored", self._on_anchored, latched)
-        self.create_subscription(
-            TwistStamped, "/cmd_vel_automatic_raw", self._on_command, 10
-        )
-        self.create_subscription(TwistStamped, "/cmd_vel_teleop", self._on_command, 10)
+        # Motion commands only count as activity in the dock; outside it
+        # Nav2 streams them at the controller rate for nothing.
+        self._command_subscriptions: list = []
         self.create_timer(0.2, self._tick)
         self._publish_state()
         self._ensure_lidar()
@@ -189,12 +214,25 @@ class DockSleep(Node):
             return
         self._docked = docked
         self._last_activity = time.monotonic()
+        self._watch_commands(docked)
         if not docked and self._state != AWAKE:
             # Pushed or driven out by hand: nothing to anchor any more.
             self._drop_wake_subscriptions()
             self._set_state(AWAKE, "left the dock")
             self._want_layers(True)
+            self._want_nav(True)
             self._ensure_lidar()
+
+    def _watch_commands(self, enabled: bool) -> None:
+        if enabled and not self._command_subscriptions:
+            self._command_subscriptions = [
+                self.create_subscription(TwistStamped, topic, self._on_command, 10)
+                for topic in ("/cmd_vel_automatic_raw", "/cmd_vel_teleop")
+            ]
+        elif not enabled:
+            for subscription in self._command_subscriptions:
+                self.destroy_subscription(subscription)
+            self._command_subscriptions = []
 
     def _on_dock_active(self, message: Bool) -> None:
         # bagheera_dock_trigger repeats this every second: only a change or
@@ -227,8 +265,15 @@ class DockSleep(Node):
 
     def _on_anchored(self, message: UInt32) -> None:
         if self._state == ANCHORING and message.data == self._anchor_seq:
-            self._set_state(AWAKE, "sensors running, AMCL anchored to the dock pose")
+            self._resume_navigation("AMCL anchored to the dock pose")
+
+    def _resume_navigation(self, done: str) -> None:
+        self._want_nav(True)
+        if self._nav_ready():
+            self._set_state(AWAKE, f"sensors running, {done}")
             self._woke_up(time.monotonic())
+        else:
+            self._set_state(RESUMING, f"{done}, resuming Nav2")
 
     def _woke_up(self, now: float) -> None:
         self._last_activity = now
@@ -263,6 +308,9 @@ class DockSleep(Node):
     def _sleep(self, reason: str) -> None:
         self._drop_wake_subscriptions()
         self._set_state(SLEEPING, reason)
+        # AMCL keeps map -> odom valid for the TF cache time (10 s) after the
+        # last scan; the pause is done long before the costmap would fail.
+        self._want_nav(False)
         self._stop_lidar()
         self._want_layers(False)
 
@@ -306,6 +354,8 @@ class DockSleep(Node):
     def _fail(self, reason: str) -> None:
         self._drop_wake_subscriptions()
         self._want_layers(True)
+        # Sensors stay on in a fault; keep trying to bring Nav2 back as well.
+        self._want_nav(True)
         self._set_state(FAULT, f"{reason}; autonomy stays gated, next wake request retries")
 
     # -- LiDAR process --------------------------------------------------------
@@ -371,10 +421,89 @@ class DockSleep(Node):
         response = future.result()
         if response is not None and response.current_state.id == State.PRIMARY_STATE_ACTIVE:
             self._startup_active.add(index)
+            self._startup_inactive_since = None
+        elif (
+            response is not None
+            and response.current_state.id == State.PRIMARY_STATE_INACTIVE
+            and self._startup_names[index].endswith("/bt_navigator")
+        ):
+            # Only the BT navigator belongs to the paused navigation manager.
+            self._recover_paused_navigation()
         if len(self._startup_active) == len(self._startup_clients):
             self._startup_done = True
             self._last_activity = time.monotonic()
             self.get_logger().info("Navigation is active; dock sleep enabled")
+
+    def _recover_paused_navigation(self) -> None:
+        """Resume Nav2 left paused by an earlier run of this node.
+
+        During bringup nodes are inactive only for a few seconds between
+        configure and activate; 20 s inactive means nobody will activate them.
+        """
+        now = time.monotonic()
+        if self._startup_inactive_since is None:
+            self._startup_inactive_since = now
+            return
+        if self._nav_client is None or now - self._startup_inactive_since < 20.0:
+            return
+        if self._nav_confirmed is not False:
+            self.get_logger().warn("Nav2 is paused although awake; resuming it")
+            self._nav_confirmed = False
+            self._nav_wanted = True
+            self._sync_nav()
+
+    # -- Nav2 navigation lifecycle --------------------------------------------
+
+    def _want_nav(self, active: bool) -> None:
+        if self._nav_client is None:
+            return
+        if active != self._nav_wanted:
+            self._nav_wanted = active
+            self._nav_confirmed = None
+            self._nav_retry_at = 0.0
+        self._sync_nav()
+
+    def _nav_ready(self) -> bool:
+        return self._nav_client is None or self._nav_confirmed is True
+
+    def _sync_nav(self) -> None:
+        if self._nav_client is None or self._nav_confirmed == self._nav_wanted:
+            return
+        now = time.monotonic()
+        if self._nav_pending and now - self._nav_sent_at < self._nav_timeout:
+            return
+        if now < self._nav_retry_at or not self._nav_client.service_is_ready():
+            return
+        wanted = self._nav_wanted
+        request = ManageLifecycleNodes.Request()
+        request.command = (
+            ManageLifecycleNodes.Request.RESUME if wanted else ManageLifecycleNodes.Request.PAUSE
+        )
+        self._nav_batch += 1
+        batch = self._nav_batch
+        self._nav_pending = True
+        self._nav_sent_at = now
+        self._nav_client.call_async(request).add_done_callback(
+            lambda future, wanted=wanted, batch=batch: self._on_nav_done(future, wanted, batch)
+        )
+
+    def _on_nav_done(self, future, wanted: bool, batch: int) -> None:
+        if batch != self._nav_batch:
+            return
+        self._nav_pending = False
+        response = future.result()
+        if wanted != self._nav_wanted:
+            return  # the next tick sends the opposite command
+        if response is None or not response.success:
+            self._nav_retry_at = time.monotonic() + 5.0
+            self.get_logger().error(
+                "Cannot %s Nav2 navigation; retrying" % ("resume" if wanted else "pause")
+            )
+            return
+        self._nav_confirmed = wanted
+        self.get_logger().info(
+            "Nav2 navigation %s" % ("resumed" if wanted else "paused while asleep")
+        )
 
     # -- costmap obstacle layers ----------------------------------------------
 
@@ -431,6 +560,15 @@ class DockSleep(Node):
     def _tick(self) -> None:
         now = time.monotonic()
         self._sync_layers()
+        self._sync_nav()
+        if self._state == RESUMING:
+            self._ensure_lidar()
+            if self._nav_ready():
+                self._set_state(AWAKE, "sensors running, Nav2 resumed")
+                self._woke_up(now)
+            elif now - self._state_since > self._nav_timeout:
+                self._fail("Nav2 navigation did not resume")
+            return
         if self._state == AWAKE:
             self._ensure_lidar()
             self._check_startup(now)
@@ -492,8 +630,7 @@ class DockSleep(Node):
             return
         self._drop_wake_subscriptions()
         if not self._anchor_enabled or not self._docked:
-            self._set_state(AWAKE, "sensors running")
-            self._woke_up(now)
+            self._resume_navigation("no dock anchor needed")
             return
         self._anchor_seq += 1
         self._anchor_publisher.publish(UInt32(data=self._anchor_seq))

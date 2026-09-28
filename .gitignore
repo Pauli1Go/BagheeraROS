@@ -6,6 +6,9 @@ __pycache__/
 .pytest_cache/
 .DS_Store
 src/bagheera_base/config/calib_undistorted_preview.png
-maps/compass_calibration.yaml
-maps/last_pose.json
+# Maps, masks, calibrations and test results are site-specific: keep them on
+# the robot only.
+maps/*
+!maps/.gitkeep
 sensor_logs/
+test_logs/

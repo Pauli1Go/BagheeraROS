@@ -16,6 +16,15 @@ from std_msgs.msg import Bool, String
 from .command_gate import ProgressWatchdog, StopCommandGate
 
 
+# States of the undock manoeuvre; only these (and the start of one) read odometry.
+MANOEUVRE_STATES = (
+    "REVERSING",
+    "SETTLE_AFTER_REVERSE",
+    "TURNING",
+    "SETTLE_AFTER_TURN",
+)
+
+
 def _normalize_angle(angle: float) -> float:
     return math.atan2(math.sin(angle), math.cos(angle))
 
@@ -145,7 +154,11 @@ class AutonomyDockGuard(Node):
         self._dock_publisher = self.create_publisher(Bool, "/docked", dock_qos)
         self.create_subscription(TwistStamped, input_topic, self._on_command, 10)
         self.create_subscription(Power, power_topic, self._on_power, 10)
-        self.create_subscription(Odometry, odom_topic, self._on_odom, 20)
+        # Odometry is only needed for the undock manoeuvre; at 25 Hz it would
+        # otherwise cost this Python node a steady share of a core.
+        self._odom_topic = odom_topic
+        self._odom_subscription = None
+        self._odom_wanted_since = 0.0
         self._wake_publisher = self.create_publisher(Bool, "/dock/wake", 10)
         self.create_subscription(String, "/dock/sleep_state", self._on_sleep_state, dock_qos)
         self.create_subscription(
@@ -244,6 +257,27 @@ class AutonomyDockGuard(Node):
             self._reverse_last_y = position.y
         self._odom = message
         self._odom_time = time.monotonic()
+
+    def _needs_odom(self, now: float) -> bool:
+        if self._state in MANOEUVRE_STATES:
+            return True
+        return (
+            self._state == "DOCKED_IDLE"
+            and self._sleep_state == "awake"
+            and not self._localization_violation
+            and self._command_is_active(now)
+        )
+
+    def _want_odom(self, wanted: bool) -> None:
+        if wanted and self._odom_subscription is None:
+            self._odom_subscription = self.create_subscription(
+                Odometry, self._odom_topic, self._on_odom, 20
+            )
+            self._odom_wanted_since = time.monotonic()
+        elif not wanted and self._odom_subscription is not None:
+            self.destroy_subscription(self._odom_subscription)
+            self._odom_subscription = None
+            self._odom = None
 
     def _on_sleep_state(self, message: String) -> None:
         self._sleep_state = message.data
@@ -353,6 +387,7 @@ class AutonomyDockGuard(Node):
 
     def _tick(self) -> None:
         now = time.monotonic()
+        self._want_odom(self._needs_odom(now))
         if self._localization_violation:
             self._publish()
             return
@@ -383,10 +418,13 @@ class AutonomyDockGuard(Node):
                 )
                 return
             if not self._odom_is_fresh(now):
-                self.get_logger().warn(
-                    "Autonomous command is waiting for fresh odometry",
-                    throttle_duration_sec=2.0,
-                )
+                # The subscription has just been created; only warn when the
+                # first message takes unusually long.
+                if now - self._odom_wanted_since > 1.0:
+                    self.get_logger().warn(
+                        "Autonomous command is waiting for fresh odometry",
+                        throttle_duration_sec=2.0,
+                    )
                 return
             self._start_reverse(now)
             return

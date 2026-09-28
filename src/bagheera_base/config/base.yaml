@@ -26,6 +26,10 @@ bagheera_battery_monitor:
 
 bagheera_controller:
   ros__parameters:
+    # Game-controller teleop. Off by default: the node polls the joystick
+    # continuously (~10 % of a Pi 4 core). Set true to drive, map or wake the
+    # robot with a gamepad; takes effect after `docker compose restart`.
+    enabled: false
     cmd_vel_topic: /cmd_vel_teleop
     joystick_index: 0
     steering_axis: 2

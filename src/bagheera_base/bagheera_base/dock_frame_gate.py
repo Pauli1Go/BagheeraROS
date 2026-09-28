@@ -8,7 +8,9 @@ so nothing waits in a queue. It does not decode images.
 
 camera_ros encodes JPEG only while the topic has a subscriber. The gate
 therefore subscribes only while /dock/vision_enabled is true; a camera running
-for the Foxglove video alone then encodes no JPEG.
+for the Foxglove video alone then encodes no JPEG. CameraInfo and the result
+timeout timer follow the same switch, so the gate costs nothing between
+dockings.
 """
 
 from __future__ import annotations
@@ -50,15 +52,16 @@ class DockFrameGate(Node):
             CameraInfo, "/dock/camera/camera_info", latest_reliable
         )
         self._image_subscription = None
+        self._info_subscription = None
         latched = QoSProfile(
             depth=1,
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.TRANSIENT_LOCAL,
         )
         self.create_subscription(Bool, "/dock/vision_enabled", self._on_vision, latched)
-        self.create_subscription(CameraInfo, "/camera/camera_info", self._on_info, 5)
         self.create_subscription(AprilTagDetectionArray, "/dock/tags", self._on_result, 5)
-        self.create_timer(0.05, self._on_timer)
+        self._timer = self.create_timer(0.05, self._on_timer)
+        self._timer.cancel()
 
         self._info: CameraInfo | None = None
         self._pending: CompressedImage | None = None
@@ -66,20 +69,30 @@ class DockFrameGate(Node):
 
     def _on_vision(self, message: Bool) -> None:
         if message.data and self._image_subscription is None:
+            # The calibration does not change; a CameraInfo kept from the last
+            # docking lets the first frame through without waiting.
+            self._info_subscription = self.create_subscription(
+                CameraInfo, "/camera/camera_info", self._on_info, 5
+            )
             self._image_subscription = self.create_subscription(
                 CompressedImage,
                 "/camera/image_raw/compressed",
                 self._on_image,
                 self._latest_only,
             )
+            self._timer.reset()
         elif not message.data and self._image_subscription is not None:
+            self._timer.cancel()
             self.destroy_subscription(self._image_subscription)
+            self.destroy_subscription(self._info_subscription)
             self._image_subscription = None
+            self._info_subscription = None
             self._pending = None
             self._busy_since = None
 
     def _on_info(self, message: CameraInfo) -> None:
         self._info = message
+        self._forward()
 
     def _on_image(self, message: CompressedImage) -> None:
         self._pending = message

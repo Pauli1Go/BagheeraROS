@@ -5,7 +5,11 @@ bt_navigator:
     global_frame: map
     robot_base_frame: base_link
     odom_topic: /odometry/filtered
-    bt_loop_duration: 10
+    # Every BT tick also publishes NavigateToPose feedback, which each action
+    # client (patrol, goal_pose_bridge) receives in Python at ~2-3 ms each on
+    # the Pi 4. 10 ms meant up to 100 Hz. The BT only starts, replans (1 Hz)
+    # and checks results; the 15 Hz controller runs on its own.
+    bt_loop_duration: 100
     filter_duration: 0.3
     default_server_timeout: 100
     wait_for_service_timeout: 5000
@@ -383,7 +387,8 @@ docking_server:
     wait_charge_timeout: 20.0
     undock_linear_tolerance: 0.05
     undock_angular_tolerance: 0.05
-    max_retries: 2
+    # Return to staging and try again this often before the goal fails.
+    max_retries: 3
     # Closer than this to the staging pose: start visually without Nav2.
     dock_prestaging_tolerance: 0.15
     # Staging navigation uses the precise goal checker (5 cm / 5 deg);
@@ -436,9 +441,14 @@ docking_server:
     home_dock:
       type: bagheera_dock
       frame: map
-      # AMCL position measured with base_link parked in the dock; yaw is the
-      # tag-derived dock axis (see bagheera_pose_persistence). Only the
-      # staging pose is derived from it; the approach uses the tags.
+      # The only definition of the dock pose [x, y, yaw] in the map frame.
+      # manual_control.launch.py also passes it to bagheera_pose_persistence,
+      # which re-anchors AMCL here while /docked is true.
+      # EXAMPLE VALUE from the Bagheera office map: replace it with your own
+      # dock pose after saving a map. x/y = AMCL position with base_link
+      # parked in the dock; yaw = dock axis (AMCL heading at the staging pose
+      # plus the measured ID 0 heading offset). Only the staging pose is
+      # derived from it; the approach itself uses the tags.
       pose: [1.192, 1.884, 1.624]
 
     controller:
@@ -535,6 +545,9 @@ costmap_filter_info_server:
 
 bagheera_localization_exclusion_guard:
   ros__parameters:
+    # 5 Hz throttled EKF output: only needed to project the last valid AMCL
+    # pose forward, not for control.
+    odom_topic: /odometry/filtered_throttled
     mask_topic: /localization_exclusion_mask
     occupied_threshold: 50
     reset_cooldown_s: 1.0

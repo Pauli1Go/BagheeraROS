@@ -245,6 +245,14 @@ def _launch_setup(context):
         output="screen",
         parameters=[params],
     )
+    # Waypoint loop test (/patrol/start_charge, /patrol/start_dock_cycle).
+    patrol = Node(
+        package="bagheera_base",
+        executable="bagheera_patrol",
+        name="bagheera_patrol",
+        output="screen",
+        parameters=[str(package_share / "config" / "patrol.yaml")],
+    )
 
     return [
         nav2_components,
@@ -258,6 +266,7 @@ def _launch_setup(context):
         localization_guard,
         keepout_relay,
         goal_bridge,
+        patrol,
     ]
 
 

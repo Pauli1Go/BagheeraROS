@@ -157,8 +157,11 @@ class DockTrigger(Node):
         self._dock_pose: PoseStamped | None = None
         self._charge_voltage = 0.0
         self._last_event = ""
+        # TF and the 20 Hz loop are only needed while a DockRobot goal runs
+        # (staging align, final approach). Outside of that a Python /tf
+        # listener costs a large part of a core for nothing.
         self._tf = Buffer()
-        self._tf_listener = TransformListener(self._tf, self)
+        self._tf_listener: TransformListener | None = None
 
         self._state = "IDLE"
         self._detail = "ready"
@@ -193,13 +196,28 @@ class DockTrigger(Node):
         self.create_subscription(PoseStamped, "/staging_pose", self._on_staging_pose, 5)
         self.create_subscription(Power, "/hardware_bridge/power", self._on_power, 10)
         self.create_subscription(String, "/dock/plugin_event", self._on_plugin_event, 10)
-        self.create_timer(0.05, self._final_tick)
+        self._final_timer = self.create_timer(0.05, self._final_tick)
+        self._final_timer.cancel()
         self.create_timer(1.0, self._publish_status)
         self._set_camera(False)
         self._publish_status()
 
     def _active(self) -> bool:
         return self._goal_pending or self._goal_handle is not None
+
+    def _start_goal_loop(self) -> None:
+        if self._tf_listener is None:
+            # Never answer lookups from a buffer filled before the last goal.
+            self._tf.clear()
+            self._tf_listener = TransformListener(self._tf, self)
+        if self._final_timer.is_canceled():
+            self._final_timer.reset()
+
+    def _stop_goal_loop(self) -> None:
+        self._final_timer.cancel()
+        if self._tf_listener is not None:
+            self._tf_listener.unregister()
+            self._tf_listener = None
 
     def _set_state(self, state: str, detail: str) -> None:
         if state != self._state or detail != self._detail:
@@ -415,6 +433,7 @@ class DockTrigger(Node):
         self._elapsed_s = 0
         self._last_event = ""
         self._set_state("STARTING", f"{action} goal sent")
+        self._start_goal_loop()
         future = client.send_goal_async(goal, feedback_callback=self._on_feedback)
         future.add_done_callback(self._on_goal_response)
 
@@ -487,6 +506,7 @@ class DockTrigger(Node):
         self._final_state = None
         self._goal_handle = None
         self._goal_pending = False
+        self._stop_goal_loop()
         self._set_camera(False)
         self._set_state(state, detail)
 

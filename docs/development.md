@@ -1,96 +1,104 @@
 # Development
 
-The deployment image is pinned to the MowgliNext 1.1.0 ROS 2 image and its
-protocol-v6 firmware. The image currently contains ROS 2 Kilted; Ubuntu on the
-Raspberry Pi remains only the Docker host.
+## Repository layout
 
-Build the complete overlay with:
-
-```bash
-docker compose build
+```text
+compose.yaml                 one container, bind mounts, launch command
+docker/                      Dockerfile (on the MowgliNext image) and driver patches
+config/99-bagheera.rules     udev rule for /dev/mowgli
+src/bagheera_base/           Python package: nodes, config/, launch/, urdf/,
+                             behavior_trees/, test/
+src/bagheera_docking/        C++ opennav_docking plugin (TagChargingDock)
+tools/                       calibration, probes, diagnostics (not installed)
+maps/                        site data, mounted into the container, not in git
+test_logs/                   patrol CSVs and perf snapshots, not in git
+legacy/docking/              former docking controller, reference only
 ```
 
-## Deploying changes to the robot
+Keep ROS-free logic in its own module (`*_math.py`, `*_logic.py`,
+`kinematics.py`, protocol decoders) so it can be tested without ROS. The node
+module only wires topics, parameters and timers.
 
-`~/BagheeraROS` on the Pi is a plain copy of this repository (not a git
-checkout). Copy changed files with `rsync` from the workstation, then pick the
-cheapest step that covers the change. Do not use `rsync --delete`: the Pi keeps
-local files such as `maps/` recordings.
+## Applying changes on the robot
 
-Reach the Pi with `ssh -4 ubuntu@bagheera.local`; without `-4` the name can
-resolve to an unreachable IPv6 link-local address.
+The container runs the files from the checkout on the robot. What a change
+needs:
 
-| Changed | What the robot needs | Time |
+| Changed | Needed | Time on a Pi 4 |
 |---|---|---|
 | `src/bagheera_base/config/*.yaml` | `docker compose restart` | ~30 s |
 | Python nodes in `src/bagheera_base/bagheera_base/` | `docker compose restart` | ~30 s |
-| `src/bagheera_base/launch/`, `behavior_trees/` | `docker compose restart` | ~30 s |
-| `compose.yaml` (mounts, environment) | `docker compose up -d` | ~30 s |
-| New executable in `setup.py`, `urdf/` (not mounted) | `docker compose build` + `docker compose up -d` | ~1 min |
-| C++ dock plugin `src/bagheera_docking/` | `docker compose build` + `docker compose up -d` | ~3 min |
-| `docker/Dockerfile`, apt packages | `docker compose build` + `docker compose up -d` | longer |
+| `launch/`, `behavior_trees/` | `docker compose restart` | ~30 s |
+| `compose.yaml` | `docker compose up -d` | ~30 s |
+| New executable in `setup.py`, `urdf/` | `docker compose build && docker compose up -d` | ~1 min |
+| C++ plugin `src/bagheera_docking/` | `docker compose build && docker compose up -d` | ~3 min |
+| `docker/Dockerfile`, apt packages, patches | `docker compose build && docker compose up -d` | long |
 
-Why this works:
+Why:
 
-- **Mounted, no build:** `compose.yaml` mounts `config`, the Python package,
-  `launch` and `behavior_trees` of `bagheera_base` read-only over the installed
-  copies. The container runs the files from the Pi's checkout, so a restart
-  picks up the change.
-- **Partial build:** the Dockerfile builds `bagheera_docking` (C++) and
-  `bagheera_base` (Python) in separate layers. A Python-only change reuses the
-  cached plugin layer; only the C++ package takes ~2 min on the Pi.
-- **Full build:** anything before those layers (base image, apt, YDLidar SDK,
-  camera_ros) invalidates everything after it.
+- `compose.yaml` mounts `config/`, the Python package, `launch/` and
+  `behavior_trees/` read-only over the installed copies, so a restart picks
+  up changes.
+- A new executable needs a build because `ros2 run` looks it up in the
+  installed package index; the module itself is mounted, its entry point is
+  not.
+- The Dockerfile builds the C++ plugin and the Python package in separate
+  layers, so a Python-only rebuild reuses the compiled plugin.
 
-Example for a Python/config change:
-
-```bash
-rsync -a -e "ssh -4" --exclude __pycache__ --exclude .pytest_cache src/ ubuntu@bagheera.local:BagheeraROS/src/
-ssh -4 ubuntu@bagheera.local 'cd ~/BagheeraROS && docker compose restart'
-```
-
-and for the C++ plugin or a new executable:
-
-```bash
-rsync -a -e "ssh -4" --exclude __pycache__ --exclude .pytest_cache src/ ubuntu@bagheera.local:BagheeraROS/src/
-ssh -4 ubuntu@bagheera.local 'cd ~/BagheeraROS && docker compose build && docker compose up -d'
-```
+If you develop on another computer, copy the changed files to the robot's
+checkout (for example with `rsync`, without `--delete`, so `maps/` and
+`test_logs/` on the robot stay untouched) and apply the step above.
 
 The stack is ready when `ros2 lifecycle get /docking_server` (or
-`/bt_navigator`) inside the container reports `active`, usually ~30 s after the
-restart.
+`/bt_navigator`) reports `active`.
 
-A new executable only appears after a build, because `ros2 run` looks it up in
-the installed package index; its Python module is mounted, but its entry point
-is not.
+## Tests
 
-To build and test without touching the running robot, use a throwaway
-container of the same image with the sources copied to `/tmp`:
+Pure-Python tests run anywhere with Python ≥ 3.11 and `pyyaml`, without
+ROS (`numpy` and `opencv-python` additionally enable the tag-geometry tests):
 
 ```bash
+PYTHONPATH=src/bagheera_base python3 -m unittest discover -s src/bagheera_base/test -v
+```
+
+Three test modules need ROS message packages (`test_dock_calibrate`,
+`test_dock_final_approach`, `test_goal_footprint`) and fail to import
+outside the container; `test_dock_sleep` skips itself there.
+
+Full build and all tests in a throwaway container of the robot image,
+without devices or network, so the running robot is not affected:
+
+```bash
+mkdir -p /tmp/bagheera_test && cp -r src /tmp/bagheera_test/
 docker run --rm --network none -v /tmp/bagheera_test:/ws bagheera-ros:local bash -lc \
   'source /opt/ros/kilted/setup.bash && source /ros2_ws/install/setup.bash && cd /ws &&
    colcon build --merge-install --packages-select bagheera_docking bagheera_base &&
    source install/setup.bash && cd src/bagheera_base && python3 -m pytest -q test'
 ```
 
-Pure controller mapping tests remain independent of ROS:
+`tools/check_nav2_bringup.sh` starts the Nav2 part with fake TF in such a
+disposable container and checks lifecycle activation and BT parsing. No
+goals are sent.
 
-```bash
-PYTHONPATH=src/bagheera_base \
-  python3.11 -m unittest discover -s src/bagheera_base/test -v
-```
+## Hardware smoke test after changes to drive code
 
-Hardware smoke-test order:
+1. Wheels off the floor, deadman not held; start the container.
+2. Protocol v6 handshake and live `/hardware_bridge/status`, emergency, IMU
+   and odometry topics.
+3. Stop/lift/tilt inputs appear in `/hardware_bridge/emergency` and block
+   commands.
+4. Command forward briefly: wheel and encoder directions are right.
+5. Release the deadman, unplug the controller, stop the teleop node: every
+   case must stop the motors.
+6. Only then test on the floor.
 
-1. Start the container with the wheels clear of the floor and do not hold the
-   controller deadman.
-2. Confirm protocol v6 handshake and live status, emergency, IMU and odometry
-   topics.
-3. Confirm that physical stop/lift/tilt inputs appear in the firmware emergency
-   message and block commands.
-4. Briefly command forward; verify both wheel and encoder directions.
-5. Release the deadman, disconnect the controller and stop the teleop process
-   separately; every case must stop motion.
-6. Only then test on the floor and calibrate `ticks_per_meter`, `wheel_track`
-   and drive/yaw PID parameters.
+## Conventions
+
+- Units SI, frames REP-103/REP-105, `base_link` at the axle.
+- Parameters in YAML with a comment explaining **why** a value was chosen,
+  not only what it is. The references in `docs/config/` mirror them; update
+  both.
+- Keep the four footprint copies identical (see
+  [config/navigation.md](config/navigation.md#footprint)).
+- The dock pose exists once, in `docking_server.home_dock.pose`.
+- Never commit anything from `maps/`.

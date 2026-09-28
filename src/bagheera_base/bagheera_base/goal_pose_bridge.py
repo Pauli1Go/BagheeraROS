@@ -209,7 +209,7 @@ class GoalPoseBridge(Node):
                        name, hit[0], hit[1])
                 )
                 return
-        if self._sleep_state in ("sleeping", "waking", "anchoring"):
+        if self._sleep_state in ("sleeping", "waking", "anchoring", "resuming"):
             self._held_pose = pose
             self._held_since = time.monotonic()
             self._wake_publisher.publish(Bool(data=True))

@@ -32,7 +32,9 @@ setup(
             "bagheera_wt901 = bagheera_base.wt901_node:main",
             "bagheera_compass = bagheera_base.compass_node:main",
             "bagheera_compass_calibrate = bagheera_base.compass_calibrate:main",
-            "bagheera_compass_test = bagheera_base.compass_test:main",
+            "bagheera_heading_test = bagheera_base.heading_test:main",
+            # Former name of the heading test, kept for existing notes/scripts.
+            "bagheera_compass_test = bagheera_base.heading_test:main",
             "bagheera_gyro_turn_test = bagheera_base.gyro_turn_test:main",
             "bagheera_rotation_shift_test = bagheera_base.rotation_shift_test:main",
             "bagheera_straight_drive_test = bagheera_base.straight_drive_test:main",
@@ -48,6 +50,7 @@ setup(
             "bagheera_pose_persistence = bagheera_base.pose_persistence:main",
             "bagheera_localization_exclusion_guard = bagheera_base.localization_exclusion_guard:main",
             "bagheera_keepout_mask_relay = bagheera_base.keepout_mask_relay:main",
+            "bagheera_patrol = bagheera_base.patrol:main",
         ],
     },
 )

@@ -266,24 +266,24 @@ def main() -> None:
         (output / "report.json").write_text(
             json.dumps(report, indent=2), encoding="utf-8"
         )
-        print(f"Bild und Auswertung: {output}")
+        print(f"Image and report: {output}")
         print(
-            f"Distanz {report['range_m']:.2f} m | Tag-Bearing "
-            f"{report['small_tag_bearing_deg']:+.1f}° | Dock-Winkel "
-            f"{heading:+.1f}° | Achsversatz {lateral:+.3f} m"
+            f"Distance {report['range_m']:.2f} m | tag bearing "
+            f"{report['small_tag_bearing_deg']:+.1f}° | dock angle "
+            f"{heading:+.1f}° | axis offset {lateral:+.3f} m"
         )
         print(
-            "Referenz des erfolgreichen Hand-Dockings bei 0.87 m: "
-            "Bearing +0.4°, großer Tag Rohwinkel +2.7°"
+            "Reference from the successful manual docking at 0.87 m: "
+            "bearing +0.4°, large tag raw angle +2.7°"
         )
         print(
-            "Achs-Check: "
-            + ("PASS" if axis_ready else "FAIL / nicht sicher messbar")
+            "Axis check: "
+            + ("PASS" if axis_ready else "FAIL / not reliably measurable")
         )
         if not stationary:
-            print("Hinweis: Roboter war nicht nachweislich im Stillstand.")
+            print("Note: the robot was not verifiably stationary.")
         if not stable:
-            print("Hinweis: Tagschwankung zu groß oder zu wenige Messungen.")
+            print("Note: tag scatter too large or too few measurements.")
     finally:
         node.release_camera()
         node.destroy_node()
