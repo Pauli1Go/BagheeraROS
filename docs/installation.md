@@ -1,8 +1,8 @@
 # Installation
 
-This guide takes a robot from bare hardware to a running container. Continue
-with [calibration.md](calibration.md) and [mapping.md](mapping.md)
-afterwards.
+This guide takes a robot from bare hardware to a running container. Wire the
+hardware first as described in [hardware.md](hardware.md); continue with
+[calibration.md](calibration.md) and [mapping.md](mapping.md) afterwards.
 
 > **Safety.** BagheeraROS drives real motors. Keep the drive wheels off the
 > floor for the first start, keep the physical stop button in reach, and never
@@ -23,7 +23,9 @@ afterwards.
 | Controller | any gamepad supported by Linux | Needed for teleop and mapping; enable it in `base.yaml` (off by default). |
 | Dock | charging contacts wired to the mainboard's charge input, two printed AprilTags | See [docking.md](docking.md). |
 
-Wiring and probe commands: [hardware.md](hardware.md).
+**Wire all parts as described in [hardware.md](hardware.md) before the first
+start.** It also lists standalone probe commands to check each sensor without
+ROS.
 
 ## 2. Mainboard firmware (MowgliNext)
 
@@ -116,7 +118,8 @@ The full checklist is in [config/README.md](config/README.md#what-you-must-adapt
 ## 6. First start (without a map)
 
 A fresh checkout has no map, so start without map localization and
-navigation. **Wheels off the floor.**
+navigation. Check the wiring against [hardware.md](hardware.md) first.
+**Wheels off the floor.**
 
 ```bash
 docker compose run --rm --name bagheera-mapping bagheera-base \

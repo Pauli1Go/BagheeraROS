@@ -70,14 +70,17 @@ docker compose build
 A fresh checkout contains **no map** and robot-specific values from
 Bagheera. Follow the guides in order:
 
-1. [Installation](docs/installation.md): hardware, MowgliNext firmware, host,
-   first start with the wheels in the air.
-2. [Calibration](docs/calibration.md): geometry, wheel odometry, IMU, LiDAR,
+1. [Hardware and wiring](docs/hardware.md): wiring of the mainboard, LiDAR,
+   IMU, optical flow and camera, standalone probes. Wire everything before
+   the first start.
+2. [Installation](docs/installation.md): MowgliNext firmware, host, first
+   start with the wheels in the air.
+3. [Calibration](docs/calibration.md): geometry, wheel odometry, IMU, LiDAR,
    optical flow, battery offset, camera.
-3. [Mapping](docs/mapping.md): create and save a map, keepout and exclusion
+4. [Mapping](docs/mapping.md): create and save a map, keepout and exclusion
    masks.
-4. [Docking](docs/docking.md): tags, measuring or moving the dock (`bagheera_dock_setup`), undock manoeuvre, tag offsets.
-5. [Operation](docs/operation.md): Foxglove, goals, docking, dock sleep,
+5. [Docking](docs/docking.md): tags, measuring or moving the dock (`bagheera_dock_setup`), undock manoeuvre, tag offsets.
+6. [Operation](docs/operation.md): Foxglove, goals, docking, dock sleep,
    battery, patrol.
 
 Reference:
@@ -85,7 +88,6 @@ Reference:
 - [Configuration reference](docs/config/README.md): every parameter of every
   config file, what to adapt, launch arguments.
 - [Diagnostics](docs/diagnostics.md): test tools and scripts.
-- [Hardware](docs/hardware.md): wiring and standalone probes.
 - [Development](docs/development.md): repository layout, applying changes,
   tests.
 - [Roadmap](ROADMAP.md).
