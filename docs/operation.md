@@ -51,8 +51,8 @@ the final heading. `bagheera_goal_pose_bridge` forwards it to Nav2's
 - A goal whose oriented footprint would overlap a wall, unknown space or a
   keepout cell is rejected. The container log says where.
 - If the robot is docked, the first goal wakes it and
-  `bagheera_autonomy_dock_guard` reverses 0.80 m out of the dock and turns
-  90° left before Nav2 takes over.
+  `bagheera_autonomy_dock_guard` reverses out of the dock and turns as set
+  in `maps/dock.yaml` (default 0.80 m, 90° left) before Nav2 takes over.
 - Autonomous speed is 0.32 m/s and 0.45 rad/s by default
   (`enable_higher_speeds`).
 - When the path is blocked, Nav2 clears the costmaps and replans, then tries

@@ -1,11 +1,15 @@
+import math
 from pathlib import Path
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, LogInfo, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import LoadComposableNodes, Node
 from launch_ros.descriptions import ComposableNode
+import yaml
+
+from bagheera_base.dock_site import load_dock_site
 
 
 # Conservative autonomous base speeds (proven mapping tune).
@@ -18,6 +22,14 @@ BASE_ANGULAR_SPEED = 0.30
 def _launch_setup(context):
     package_share = Path(get_package_share_directory("bagheera_base"))
     params = str(package_share / "config" / "nav2_navigation.yaml")
+    # Dock pose and undock manoeuvre of this site (maps/dock.yaml).
+    site = load_dock_site(params)
+    with open(params, encoding="utf-8") as handle:
+        dock_name = yaml.safe_load(handle)["docking_server"]["ros__parameters"]["docks"][0]
+    site_log = LogInfo(msg=(
+        "Dock site from %s: pose [%.3f, %.3f, %.3f], undock %.2f m, turn %.1f deg"
+        % ((site.source,) + site.pose + (site.reverse_distance_m, math.degrees(site.turn_angle_rad)))
+    ))
 
     high_speed = (
         context.perform_substitution(
@@ -160,7 +172,10 @@ def _launch_setup(context):
         executable="bagheera_autonomy_dock_guard",
         name="bagheera_autonomy_dock_guard",
         output="screen",
-        parameters=[params],
+        parameters=[params, {
+            "reverse_distance_m": site.reverse_distance_m,
+            "turn_angle_rad": site.turn_angle_rad,
+        }],
     )
     dock_apriltag = Node(
         package="apriltag_ros",
@@ -201,7 +216,7 @@ def _launch_setup(context):
         executable="opennav_docking",
         name="docking_server",
         output="screen",
-        parameters=[params],
+        parameters=[params, {f"{dock_name}.pose": list(site.pose)}],
         remappings=[("cmd_vel", "/cmd_vel_docking")],
     )
     lifecycle_manager_docking = Node(
@@ -255,6 +270,7 @@ def _launch_setup(context):
     )
 
     return [
+        site_log,
         nav2_components,
         dock_guard,
         dock_frame_gate,

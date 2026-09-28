@@ -15,8 +15,10 @@ docking_server:
       pose: [1.192, 1.884, 1.624]   # EXAMPLE, replace with yours
 ```
 
-`home_dock.pose` is the **only** definition of the dock pose `[x, y, yaw]`
-in the map frame. `manual_control.launch.py` also passes it to
+`home_dock.pose` is only the **fallback** for the dock pose `[x, y, yaw]` in
+the map frame. The site file `maps/dock.yaml` (`dock_pose`, see
+[../docking.md](../docking.md#3-dock-pose-and-staging-pose)) overrides it;
+the launch files pass the result to the docking server and to
 `bagheera_pose_persistence` (as `dock_x/dock_y/dock_yaw`), which anchors AMCL
 there while the robot is docked. The shipped value belongs to the author's
 map and is meaningless for yours.

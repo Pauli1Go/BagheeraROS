@@ -41,7 +41,10 @@ fused tag position, the axis angle and the robot's offset to the dock
 (`along`, `left`, `yaw`).
 
 Leaving the dock is done by `bagheera_autonomy_dock_guard` before the next
-autonomous goal: reverse 0.80 m along the axis, turn 90° left.
+autonomous goal: reverse along the dock axis, then turn, both per site in
+`maps/dock.yaml` (default 0.80 m and 90° left). With `turn_angle_deg: 0` it
+only reverses and Nav2 turns onto its path. Pick the turn so that the robot
+ends up in free space at your dock.
 
 ## Setting up a dock
 
@@ -68,28 +71,78 @@ autonomous goal: reverse 0.80 m along the axis, turn 90° left.
    author's printer printed 4 % small). Print at 100 % / actual size and
    measure the outer black edge with a ruler; adjust `--print-scale` until it
    matches.
-3. Mount **ID 1** on the dock, centred on the dock axis, where the camera
-   sees it from the staging pose until a few centimetres before contact.
-   Mount **ID 0** flat on the wall above the dock, facing along the dock
-   axis, visible from the staging pose.
+3. Mount the tags (values measured on Bagheera; camera at 12 cm, level):
+
+   ```text
+   side view                                  front view (from the robot)
+
+   wall │                                         ┌─────────┐
+        │ ┌──┐  ID 0, 160 mm                      │  ID 0   │  centre ~42 cm
+        │ │  │  centre ~42 cm above the floor     │ 160 mm  │  above floor
+        │ └──┘                                    └─────────┘
+        │          ~29 cm centre to centre             │ same vertical axis
+        │      ┌┐  ID 1, 48 mm, ~11 cm in front        ┌┐
+        │      └┘  of the wall, centre at camera   ●   └┘   ●   pins
+        │ dock ██  height (~12–13 cm)                  ID 1
+   ─────┴──────██──────────── floor
+   ```
+
+   - **ID 1** (small): on the dock, centred **between the charging pins**, its
+     centre at **camera height** (~12–13 cm above the floor), facing the
+     robot along the dock axis. The camera must see it from the staging pose
+     until a few centimetres before contact.
+   - **ID 0** (large): flat on the wall behind the dock, **vertically above
+     ID 1** on the same axis, ~29 cm centre to centre (its centre ~42 cm above
+     the floor).
+   - Both upright (as printed, top edge up) and flat; they must not move
+     afterwards.
+   - The exact height of ID 0 is not critical: only its left-right facing is
+     used, and a fixed rotation is absorbed by `axis_yaw_offset`. Mount it as
+     low as possible without ID 1 or the dock covering it. Seen steeply from
+     below it gets foreshortened, lands at the fisheye edge and its angle
+     gets noisier; its shortest edge must stay ≥ 60 px
+     (`minimum_axis_edge_pixels`) from the staging pose.
 4. If you change the sizes, update the **detected border size** (5/9 of the
    printed size) in `dock_apriltag` and `bagheera_dock_tag_pose`.
 
 ### 3. Dock pose and staging pose
 
-The dock pose is a map coordinate. Measure it again after every new map.
+The dock pose and the undock manoeuvre belong to the site, like the map.
+They live in `maps/dock.yaml` (mounted, not in git); without that file the
+example values in `nav2_navigation.yaml` apply. The staging pose, the tag
+offsets and everything else are relative to the dock and stay the same when
+the dock moves.
 
-1. **Position.** Put the robot on the charger (localized; `/docked` true)
-   and read the AMCL pose:
+```yaml
+# maps/dock.yaml: charging dock of this site (not in git)
+dock_pose: [1.192, 1.884, 1.624]   # map x, y [m], yaw [rad]
+undock:
+  reverse_distance_m: 0.80         # straight back out of the dock
+  turn_angle_deg: 90.0             # + left, - right, 0 = no turn
+```
+
+The launch files pass it to the docking server, `bagheera_pose_persistence`
+and the dock guard (the start-up log shows `Dock site from …`). Measure the
+dock pose again after every new map and every time the dock is moved.
+
+**Dock lock.** While `/docked` is true, `bagheera_pose_persistence` pins AMCL
+to the *configured* dock pose. After moving the dock the robot therefore
+snaps to the old place as soon as it charges, and reading `/amcl_pose` in
+the dock only returns the old value. It warns (`Docked … m away from the
+configured dock pose`) if it docks more than 0.5 m from it. Measure the new
+pose as follows:
+
+1. **Position.** Localize the robot (Foxglove *2D pose estimate* if needed),
+   drive it slowly onto the charger and read the AMCL pose while the pins
+   touch, **before** `/docked` becomes true (the charger needs a few seconds
+   to reach 10 V):
 
    ```bash
    ros2 topic echo /amcl_pose --once
    ```
 
-   Its x/y are the dock position. Its heading is a first guess for the dock
-   yaw. Enter `[x, y, yaw]` as `docking_server.home_dock.pose` in
-   `nav2_navigation.yaml`. This is the only place; `bagheera_pose_persistence`
-   gets it from there.
+   Its x/y are the dock position, its heading a first guess for the dock
+   yaw. Enter `[x, y, yaw]` as `dock_pose` in `maps/dock.yaml`.
 2. **Staging pose.** Drive the robot to where it should start the approach:
    about 0.6 m in front of the dock, on the axis, facing the dock, with both
    tags in the camera image (check `/camera/h264`). Read `/amcl_pose` again:
@@ -107,9 +160,10 @@ The dock pose is a map coordinate. Measure it again after every new map.
    `Dock estimate:` line while the robot stands there: `yaw` is the robot's
    heading relative to the tag-derived dock axis. Then
    `dock_yaw = syaw − yaw` (with `syaw` from `/amcl_pose` at the same
-   moment). Enter it and recompute the staging offsets so the staging map
-   pose stays the same.
-4. `docker compose restart`.
+   moment). Enter it in `maps/dock.yaml`. Recompute the staging offsets
+   only if the staging pose must stay at the same map position.
+4. Choose the undock turn in `maps/dock.yaml` (see above).
+5. `docker compose restart`.
 
 ### 4. Tag offsets
 

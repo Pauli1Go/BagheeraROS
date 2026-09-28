@@ -227,11 +227,11 @@ commands as missing progress. The latched `/dock/guard_state` shows the state
 | `contact_voltage_threshold` | 0.5 V | Autonomy is already gated at first contact; the charger needs seconds to reach 10 V. |
 | `command_timeout_s` | 0.5 s | Input older than this counts as stopped. |
 | `undock_request_timeout_s` | 60 s | A `/dock/undock` request stays valid this long while the robot wakes up. |
-| `reverse_distance_m`, `reverse_speed_mps` | 0.80 m, 0.08 m/s | Undock reverse. |
+| `reverse_distance_m`, `reverse_speed_mps` | 0.80 m, 0.08 m/s | Undock reverse. The distance comes from `maps/dock.yaml` (`undock.reverse_distance_m`) when set. |
 | `reverse_heading_kp`, `reverse_cross_track_kp`, `reverse_max_angular_rps` | 1.5, 1.0, 0.25 rad/s | Keep the reverse straight on the dock axis. |
 | `reverse_stall_window_s`, `reverse_stall_min_progress_m` | 5 s, 0.05 m | Abort when the reverse makes less than 5 cm in 5 s. |
 | `reverse_timeout_s` | 60 s | Absolute limit. |
-| `turn_angle_rad` | 90° | Turn left after reversing. |
+| `turn_angle_rad` | 90° | Turn after reversing: + left, − right, 0 = none (Nav2 then turns onto its path). From `maps/dock.yaml` (`undock.turn_angle_deg`) when set. |
 | `turn_max_speed_rps`, `turn_min_speed_rps`, `turn_gain`, `turn_tolerance_rad`, `turn_timeout_s` | 0.30, 0.30, 0.8, 2°, 15 s | Turn controller. |
 | `settle_time_s` | 0.30 s | Pause between the phases. |
 

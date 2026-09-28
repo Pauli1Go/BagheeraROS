@@ -39,3 +39,31 @@ class ProgressWatchdog:
             return True
         self.reset(now, progress)
         return False
+
+
+def undock_turn_speed(
+    target: float,
+    progress: float,
+    tolerance: float,
+    gain: float,
+    min_speed: float,
+    max_speed: float,
+) -> float | None:
+    """Angular speed for the undock turn, or None once it is done.
+
+    target is signed (+ left, - right, 0 = no turn); progress is the signed
+    rotation so far. The speed keeps the target's sign.
+    """
+    direction = 1.0 if target >= 0.0 else -1.0
+    remaining = abs(target) - direction * progress
+    if remaining <= tolerance:
+        return None
+    return direction * min(max_speed, max(min_speed, gain * remaining))
+
+
+def turn_description(angle: float) -> str:
+    """Human-readable turn, e.g. '90.0 deg left', '45.0 deg right', 'no turn'."""
+    degrees = abs(angle) * 57.29577951308232
+    if degrees < 0.05:
+        return "no turn"
+    return "%.1f deg %s" % (degrees, "left" if angle > 0.0 else "right")

@@ -13,7 +13,12 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Bool, String
 
-from .command_gate import ProgressWatchdog, StopCommandGate
+from .command_gate import (
+    ProgressWatchdog,
+    StopCommandGate,
+    turn_description,
+    undock_turn_speed,
+)
 
 
 # States of the undock manoeuvre; only these (and the start of one) read odometry.
@@ -70,6 +75,8 @@ class AutonomyDockGuard(Node):
         self.declare_parameter("reverse_heading_kp", 1.5)
         self.declare_parameter("reverse_cross_track_kp", 1.0)
         self.declare_parameter("reverse_max_angular_rps", 0.25)
+        # Signed: + left, - right, 0 = no turn (Nav2 then turns onto its
+        # path). manual_control/navigation launch take it from maps/dock.yaml.
         self.declare_parameter("turn_angle_rad", math.pi / 2.0)
         self.declare_parameter("turn_max_speed_rps", 0.30)
         self.declare_parameter("turn_min_speed_rps", 0.30)
@@ -183,11 +190,11 @@ class AutonomyDockGuard(Node):
         self.create_timer(1.0, self._publish_docked)
         self.get_logger().info(
             "Autonomous dock guard active: dock voltage >= %.1f V; "
-            "undock %.2f m reverse, then %.1f deg left"
+            "undock %.2f m reverse, then %s"
             % (
                 self._dock_voltage,
                 self._reverse_distance,
-                math.degrees(self._turn_angle),
+                turn_description(self._turn_angle),
             )
         )
 
@@ -395,8 +402,7 @@ class AutonomyDockGuard(Node):
         self._phase_started = now
         self._state = "TURNING"
         self.get_logger().info(
-            "Reverse complete; turning %.1f deg left"
-            % math.degrees(self._turn_angle)
+            "Reverse complete; turning %s" % turn_description(self._turn_angle)
         )
 
     def _update_turn_progress(self) -> None:
@@ -501,13 +507,25 @@ class AutonomyDockGuard(Node):
         if self._state == "SETTLE_AFTER_REVERSE":
             self._publish()
             if now - self._phase_started >= self._settle_time:
-                self._start_turn(now)
+                if abs(self._turn_angle) <= self._turn_tolerance:
+                    self._state = "SETTLE_AFTER_TURN"
+                    self._phase_started = now
+                    self.get_logger().info("Reverse complete; no undock turn configured")
+                else:
+                    self._start_turn(now)
             return
 
         if self._state == "TURNING":
             self._update_turn_progress()
-            remaining = self._turn_angle - self._turn_progress
-            if remaining <= self._turn_tolerance:
+            speed = undock_turn_speed(
+                self._turn_angle,
+                self._turn_progress,
+                self._turn_tolerance,
+                self._turn_gain,
+                self._turn_min_speed,
+                self._turn_max_speed,
+            )
+            if speed is None:
                 self._state = "SETTLE_AFTER_TURN"
                 self._phase_started = now
                 self._publish()
@@ -517,12 +535,8 @@ class AutonomyDockGuard(Node):
                 )
                 return
             if now - self._phase_started > self._turn_timeout:
-                self._fail("left-turn timeout")
+                self._fail("undock turn timeout")
                 return
-            speed = min(
-                self._turn_max_speed,
-                max(self._turn_min_speed, self._turn_gain * remaining),
-            )
             self._publish(angular=speed)
             return
 

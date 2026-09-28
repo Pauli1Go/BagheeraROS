@@ -10,6 +10,8 @@ from launch.substitutions import Command, FindExecutable, LaunchConfiguration, P
 from launch_ros.actions import LoadComposableNodes, Node
 from launch_ros.descriptions import ComposableNode, ParameterValue
 
+from bagheera_base.dock_site import load_dock_site
+
 
 def _robot_description(package_share: Path, robot_config: Path) -> dict:
     with robot_config.open(encoding="utf-8") as handle:
@@ -55,11 +57,10 @@ def _robot_description(package_share: Path, robot_config: Path) -> dict:
 
 
 def _dock_pose(nav2_navigation_config: str) -> dict:
-    # Single source of the dock pose: the docking server's first dock.
-    with open(nav2_navigation_config, encoding="utf-8") as handle:
-        docking = yaml.safe_load(handle)["docking_server"]["ros__parameters"]
-    x, y, yaw = docking[docking["docks"][0]]["pose"]
-    return {"dock_x": float(x), "dock_y": float(y), "dock_yaw": float(yaw)}
+    # maps/dock.yaml (site data), else docking_server.home_dock.pose; the
+    # navigation launch passes the same pose to the docking server.
+    x, y, yaw = load_dock_site(nav2_navigation_config).pose
+    return {"dock_x": x, "dock_y": y, "dock_yaw": yaw}
 
 
 def _controller_enabled(base_config: str) -> bool:

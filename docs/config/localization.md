@@ -110,7 +110,7 @@ the robot is docked.
 |---|---|---|
 | `pose_file` | `/bagheera_ws/maps/last_pose.json` | Saved pose (in the `maps/` volume). |
 | `map_file` | `/bagheera_ws/maps/current.yaml` | Map whose hash must match the saved record. |
-| `dock_x`, `dock_y`, `dock_yaw` | from `docking_server.home_dock.pose` | Set by `manual_control.launch.py`; there are no defaults. See [docking.md](docking.md#dock-pose). |
+| `dock_x`, `dock_y`, `dock_yaw` | from `maps/dock.yaml` (else `docking_server.home_dock.pose`) | Set by `manual_control.launch.py`; there are no defaults. See [docking.md](docking.md#dock-pose). |
 | `save_min_distance_m`, `save_min_angle_rad` | 0.02 m, 1° | Save thresholds. |
 | `odom_topic` | `/odometry/filtered_throttled` | 5 Hz copy of the EKF output (`odometry_throttle` in `nav2_container`). The pose is interpolated between samples; the full 25 Hz only costs Python executor time. |
 

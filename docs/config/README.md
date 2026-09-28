@@ -34,7 +34,7 @@ robot.
 | Battery voltage offset and thresholds | `base.yaml` → `bagheera_battery_monitor` | robot |
 | Game controller on/off (off by default), axes / buttons | `base.yaml` → `bagheera_controller` (`enabled`), axes/buttons also as launch arguments | robot |
 | Map, keepout and exclusion masks | `maps/` (not in git) | site |
-| Dock pose | `nav2_navigation.yaml` → `docking_server.home_dock.pose` (the only place) | site |
+| Dock pose and undock manoeuvre | `maps/dock.yaml` (`dock_pose`, `undock`); fallback `nav2_navigation.yaml` | site |
 | Staging offset and tag offsets | `nav2_navigation.yaml` → `docking_server.bagheera_dock` | robot + site |
 | AprilTag IDs and sizes | `nav2_navigation.yaml` → `dock_apriltag`, `bagheera_dock_tag_pose` | site |
 | Patrol waypoints | `patrol.yaml` | site |

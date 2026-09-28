@@ -321,6 +321,8 @@ bagheera_autonomy_dock_guard:
     # Gate autonomy already at first contact; 10 V follows seconds later.
     contact_voltage_threshold: 0.5
     command_timeout_s: 0.5
+    # Undock manoeuvre. FALLBACK ONLY: maps/dock.yaml (undock.
+    # reverse_distance_m, undock.turn_angle_deg) overrides both values.
     reverse_distance_m: 0.80
     reverse_speed_mps: 0.08
     # A fixed 18 s limit aborted a slow (0.045 m/s) but steady undock on
@@ -331,6 +333,7 @@ bagheera_autonomy_dock_guard:
     reverse_heading_kp: 1.5
     reverse_cross_track_kp: 1.0
     reverse_max_angular_rps: 0.25
+    # + left, - right, 0 = no turn (Nav2 then turns onto its path).
     turn_angle_rad: 1.5707963267948966
     # Same deliberately reduced angular speed used for manual mapping.
     turn_max_speed_rps: 0.30
@@ -441,11 +444,12 @@ docking_server:
     home_dock:
       type: bagheera_dock
       frame: map
-      # The only definition of the dock pose [x, y, yaw] in the map frame.
-      # manual_control.launch.py also passes it to bagheera_pose_persistence,
-      # which re-anchors AMCL here while /docked is true.
-      # EXAMPLE VALUE from the Bagheera office map: replace it with your own
-      # dock pose after saving a map. x/y = AMCL position with base_link
+      # Dock pose [x, y, yaw] in the map frame. FALLBACK ONLY: the site file
+      # maps/dock.yaml (dock_pose) overrides it; the launch files pass the
+      # result here and to bagheera_pose_persistence, which re-anchors AMCL
+      # there while /docked is true.
+      # EXAMPLE VALUE from the Bagheera office map: put your own dock pose
+      # into maps/dock.yaml after saving a map. x/y = AMCL position with base_link
       # parked in the dock; yaw = dock axis (AMCL heading at the staging pose
       # plus the measured ID 0 heading offset). Only the staging pose is
       # derived from it; the approach itself uses the tags.

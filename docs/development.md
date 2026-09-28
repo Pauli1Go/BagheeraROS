@@ -103,5 +103,7 @@ goals are sent.
   both.
 - Keep the four footprint copies identical (see
   [config/navigation.md](config/navigation.md#footprint)).
-- The dock pose exists once, in `docking_server.home_dock.pose`.
+- The dock pose and the undock manoeuvre are site data in `maps/dock.yaml`
+  (`bagheera_base/dock_site.py`); `nav2_navigation.yaml` only holds example
+  fallbacks.
 - Never commit anything from `maps/`.

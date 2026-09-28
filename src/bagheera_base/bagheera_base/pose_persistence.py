@@ -46,7 +46,8 @@ class PosePersistence(Node):
         super().__init__("bagheera_pose_persistence")
         self.declare_parameter("pose_file", "/bagheera_ws/maps/last_pose.json")
         self.declare_parameter("map_file", "/bagheera_ws/maps/current.yaml")
-        # No defaults: the launch file passes docking_server.home_dock.pose.
+        # No defaults: the launch file passes the dock pose (maps/dock.yaml,
+        # else docking_server.home_dock.pose).
         self.declare_parameter("dock_x", Parameter.Type.DOUBLE)
         self.declare_parameter("dock_y", Parameter.Type.DOUBLE)
         self.declare_parameter("dock_yaw", Parameter.Type.DOUBLE)
@@ -189,6 +190,7 @@ class PosePersistence(Node):
         previous = self._dock_state
         self._dock_state = docked
         if docked:
+            self._warn_if_dock_moved()
             self._restoring = False
             self._dock_pose_confirmed = False
             self._last_good = self._dock_pose
@@ -209,6 +211,20 @@ class PosePersistence(Node):
             )
         else:
             self.get_logger().info("Undocked: following AMCL and saving map pose")
+
+    def _warn_if_dock_moved(self) -> None:
+        """The dock lock snaps AMCL to the configured pose; say if that is far off."""
+        before = self._current_map_pose() or self._last_good
+        if before is None:
+            return
+        distance = math.hypot(before[0] - self._dock_pose[0], before[1] - self._dock_pose[1])
+        if distance > 0.5:
+            self.get_logger().warn(
+                "Docked %.2f m away from the configured dock pose (%.2f, %.2f); "
+                "AMCL is now anchored there. If the dock was moved, update "
+                "maps/dock.yaml (docs/docking.md)."
+                % (distance, self._dock_pose[0], self._dock_pose[1])
+            )
 
     def _on_anchor_request(self, message: UInt32) -> None:
         if message.data == self._anchor_handled or not self._dock_state:
