@@ -185,7 +185,7 @@ class GoalPoseBridge(Node):
             )
             return
         if self._goal_is_blocked(pose):
-            self.get_logger().warn(
+            self.get_logger().warning(
                 "Rejecting goal inside keepout/outside map at (%.2f, %.2f)"
                 % (pose.pose.position.x, pose.pose.position.y)
             )
@@ -202,7 +202,7 @@ class GoalPoseBridge(Node):
                 yaw, threshold,
             )
             if hit is not None:
-                self.get_logger().warn(
+                self.get_logger().warning(
                     "Rejecting goal (%.2f, %.2f, %.0f deg): robot footprint would "
                     "overlap a %s/unknown cell at (%.2f, %.2f)"
                     % (pose.pose.position.x, pose.pose.position.y, math.degrees(yaw),

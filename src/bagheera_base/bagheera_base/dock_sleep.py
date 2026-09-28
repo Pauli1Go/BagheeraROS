@@ -461,7 +461,7 @@ class DockSleep(Node):
         if self._nav_client is None or now - self._startup_inactive_since < 20.0:
             return
         if self._nav_confirmed is not False:
-            self.get_logger().warn("Nav2 is paused although awake; resuming it")
+            self.get_logger().warning("Nav2 is paused although awake; resuming it")
             self._nav_confirmed = False
             self._nav_wanted = True
             self._sync_nav()

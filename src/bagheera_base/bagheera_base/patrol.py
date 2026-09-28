@@ -260,7 +260,7 @@ class Patrol(Node):
 
     def _start(self, path: PatrolPath) -> None:
         if self._state in RUNNING_STATES:
-            self.get_logger().warn("Patrol already running; cancel it first")
+            self.get_logger().warning("Patrol already running; cancel it first")
             return
         self._path = path
         self._route = path.route()
@@ -319,7 +319,7 @@ class Patrol(Node):
             self._send_goal()
             return
         if self._guard_state is None:
-            self.get_logger().warn("No /dock/guard_state; the goal itself triggers undocking")
+            self.get_logger().warning("No /dock/guard_state; the goal itself triggers undocking")
             self._send_goal()
             return
         self._last_undock_request = time.monotonic()
@@ -382,7 +382,7 @@ class Patrol(Node):
         plan = self._plan
         if plan.retry_after(detail):
             number = plan.index + 1
-            self.get_logger().warn(
+            self.get_logger().warning(
                 f"Retrying waypoint {number} in {self._retry_delay:.0f} s "
                 f"({plan.retries}/{plan.max_transient_retries}): {detail}"
             )
@@ -406,7 +406,7 @@ class Patrol(Node):
         if reached:
             self._log("waypoint_reached", "", waypoint=number, duration=duration)
         else:
-            self.get_logger().warn(f"Skipping waypoint {number}: {detail}")
+            self.get_logger().warning(f"Skipping waypoint {number}: {detail}")
             self._log("waypoint_skipped", detail, waypoint=number, duration=duration)
         if plan.laps != laps_before:
             self._log(
@@ -418,7 +418,7 @@ class Patrol(Node):
         self._do(step)
 
     def _abandon_for_critical(self) -> None:
-        self.get_logger().warn("Battery CRITICAL: abandoning the waypoint, docking now")
+        self.get_logger().warning("Battery CRITICAL: abandoning the waypoint, docking now")
         self._set_state(ABANDONING, "battery CRITICAL: cancelling the waypoint")
         if self._goal_handle is not None:
             self._goal_handle.cancel_goal_async()
@@ -528,7 +528,7 @@ class Patrol(Node):
                 self._last_undock_request = now
                 self._undock_pub.publish(Bool(data=True))
         elif self._state == NAVIGATING and elapsed > self._waypoint_timeout:
-            self.get_logger().warn("Waypoint timeout; cancelling the goal")
+            self.get_logger().warning("Waypoint timeout; cancelling the goal")
             if self._goal_handle is not None:
                 self._goal_handle.cancel_goal_async()
             self._goal_token += 1
@@ -603,7 +603,7 @@ class Patrol(Node):
             self._log_path = path
             self.get_logger().info(f"Patrol log: {path}")
         except OSError as error:
-            self.get_logger().warn(f"Patrol log disabled: {error}")
+            self.get_logger().warning(f"Patrol log disabled: {error}")
 
     def _log(self, event: str, detail: str, waypoint: int | None = None,
              duration: float | None = None) -> None:
@@ -626,7 +626,7 @@ class Patrol(Node):
             with open(self._log_path, "a", newline="") as handle:
                 csv.writer(handle).writerow(row)
         except OSError as error:
-            self.get_logger().warn(f"Patrol log write failed: {error}")
+            self.get_logger().warning(f"Patrol log write failed: {error}")
 
 
 def main(args=None) -> None:

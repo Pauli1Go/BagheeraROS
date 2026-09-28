@@ -453,7 +453,7 @@ class AutonomyDockGuard(Node):
                 # The subscription has just been created; only warn when the
                 # first message takes unusually long.
                 if now - self._odom_wanted_since > 1.0:
-                    self.get_logger().warn(
+                    self.get_logger().warning(
                         "Autonomous command is waiting for fresh odometry",
                         throttle_duration_sec=2.0,
                     )

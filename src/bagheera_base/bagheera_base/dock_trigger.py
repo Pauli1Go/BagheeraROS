@@ -277,7 +277,7 @@ class DockTrigger(Node):
     def _start_staging_align(self) -> None:
         error = self._staging_yaw_error()
         if error is None:
-            self.get_logger().warn("Staging align skipped: no staging pose or TF")
+            self.get_logger().warning("Staging align skipped: no staging pose or TF")
             return
         self._align_active = True
         self._align_started = time.monotonic()
@@ -364,7 +364,7 @@ class DockTrigger(Node):
                 % (-along, left, self._final_params.max_lateral, math.degrees(yaw_error),
                    math.degrees(self._final_params.max_yaw))
             )
-            self.get_logger().warn(detail)
+            self.get_logger().warning(detail)
             self._set_state("PRE_DOCK_OFF_AXIS", detail)
             return
         self._final_state = "driving"
@@ -414,7 +414,7 @@ class DockTrigger(Node):
         if not message.data:
             return
         if self._active():
-            self.get_logger().warn("Dock trigger ignored: an action is active")
+            self.get_logger().warning("Dock trigger ignored: an action is active")
             return
         if not self._dock_client.server_is_ready():
             self._set_state("FAILED", "Nav2 docking server unavailable")

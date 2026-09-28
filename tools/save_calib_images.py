@@ -48,7 +48,7 @@ class Saver(Node):
                 msg.height, msg.width, 3
             )
         else:
-            self.get_logger().warn(f"unexpected encoding {msg.encoding}, skipping")
+            self.get_logger().warning(f"unexpected encoding {msg.encoding}, skipping")
             return
         path = os.path.join(self._outdir, f"img_{self._count:03d}.png")
         cv2.imwrite(path, frame)

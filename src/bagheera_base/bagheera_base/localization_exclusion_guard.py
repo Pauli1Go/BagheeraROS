@@ -162,7 +162,7 @@ class LocalizationExclusionGuard(Node):
         restored.pose.covariance[35] = max(restored.pose.covariance[35], 0.03)
         self._initial_pose.publish(restored)
         self._last_reset = now
-        self.get_logger().warn(
+        self.get_logger().warning(
             "Rejected AMCL pose in localization-exclusion zone; "
             "restoring odometry-projected valid pose"
         )

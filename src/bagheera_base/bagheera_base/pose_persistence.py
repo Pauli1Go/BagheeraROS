@@ -135,7 +135,7 @@ class PosePersistence(Node):
         try:
             record = json.loads(self._path.read_text(encoding="utf-8"))
             if record["map_sha256"] != self._map_hash:
-                self.get_logger().warn("Saved pose belongs to another map; ignoring it")
+                self.get_logger().warning("Saved pose belongs to another map; ignoring it")
                 return None
             pose = tuple(float(record[key]) for key in ("x", "y", "yaw"))
             if not all(math.isfinite(value) for value in pose):
@@ -146,7 +146,7 @@ class PosePersistence(Node):
             self.get_logger().info("No saved map pose yet")
             return None
         except (OSError, KeyError, ValueError, TypeError) as error:
-            self.get_logger().warn(f"Ignoring invalid saved pose: {error}")
+            self.get_logger().warning(f"Ignoring invalid saved pose: {error}")
             return None
 
     def _save_pose(self, pose: tuple[float, float, float]) -> None:
@@ -219,7 +219,7 @@ class PosePersistence(Node):
             return
         distance = math.hypot(before[0] - self._dock_pose[0], before[1] - self._dock_pose[1])
         if distance > 0.5:
-            self.get_logger().warn(
+            self.get_logger().warning(
                 "Docked %.2f m away from the configured dock pose (%.2f, %.2f); "
                 "AMCL is now anchored there. If the dock was moved, update "
                 "maps/dock.yaml (docs/docking.md)."
@@ -355,14 +355,14 @@ class PosePersistence(Node):
                 if self._jump_since is None:
                     self._jump_since = now
                 if now - self._jump_since < 10.0:
-                    self.get_logger().warn(
+                    self.get_logger().warning(
                         "AMCL pose jump rejected for persistence (not saved)",
                         throttle_duration_sec=5.0,
                     )
                     return
                 # A correction that AMCL keeps for 10 s is a relocalization,
                 # e.g. after a wrong restored heading; persist it.
-                self.get_logger().warn("AMCL pose jump persisted for 10 s; saving it")
+                self.get_logger().warning("AMCL pose jump persisted for 10 s; saving it")
         self._jump_since = None
         self._last_good = candidate
         self._last_good_odom = self._odom
