@@ -136,9 +136,9 @@ docker compose up -d
 
 Set the initial pose in Foxglove ([operation.md](operation.md#set-the-initial-pose))
 and check that `/scan` lies on the walls of `/map` while you drive a bit.
-Then measure the dock pose for this map and put it into `maps/dock.yaml`
-([docking.md](docking.md#3-dock-pose-and-staging-pose)): it is a map
-coordinate and changes with every new map.
+Then measure the dock for this map with `bagheera_dock_setup`
+([docking.md](docking.md#measuring-the-dock-new-site-or-moved-dock)): the
+dock pose is a map coordinate and changes with every new map.
 
 ## Troubleshooting
 

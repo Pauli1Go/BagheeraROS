@@ -59,11 +59,12 @@ class DockSiteTest(unittest.TestCase):
                 load_dock_site(CONFIG, self.site)
 
     def test_dump_round_trip(self):
-        original = DockSite((1.192, 1.884, 1.624), 0.8, math.radians(-90.0), "x")
+        original = DockSite((1.192, 1.884, 1.624), 0.8, math.radians(-90.0), 0.012, "x")
         self.write(dump_dock_site(original))
         site = load_dock_site(CONFIG, self.site)
         self.assertEqual(site.pose, original.pose)
         self.assertAlmostEqual(site.turn_angle_rad, original.turn_angle_rad)
+        self.assertAlmostEqual(site.axis_yaw_offset, original.axis_yaw_offset)
 
 
 if __name__ == "__main__":

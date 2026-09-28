@@ -119,7 +119,12 @@ dock_pose: [1.192, 1.884, 1.624]   # map x, y [m], yaw [rad]
 undock:
   reverse_distance_m: 0.80         # straight back out of the dock
   turn_angle_deg: 90.0             # + left, - right, 0 = no turn
+axis_yaw_offset_rad: 0.0055        # ID 0 (wall) direction -> docked heading
 ```
+
+`axis_yaw_offset_rad` is here because ID 0 hangs on the site's wall. ID 1
+sits on the dock, so its offsets (`external_detection_translation_x/y`) stay
+in `nav2_navigation.yaml` and move with the dock.
 
 The launch files pass it to the docking server, `bagheera_pose_persistence`
 and the dock guard (the start-up log shows `Dock site from …`). Measure the
@@ -129,47 +134,80 @@ dock pose again after every new map and every time the dock is moved.
 to the *configured* dock pose. After moving the dock the robot therefore
 snaps to the old place as soon as it charges, and reading `/amcl_pose` in
 the dock only returns the old value. It warns (`Docked … m away from the
-configured dock pose`) if it docks more than 0.5 m from it. Measure the new
-pose as follows:
+configured dock pose`) if it docks more than 0.5 m from it. Hence the dock
+pose is measured with the dock **unpowered**.
 
-1. **Position.** Localize the robot (Foxglove *2D pose estimate* if needed),
-   drive it slowly onto the charger and read the AMCL pose while the pins
-   touch, **before** `/docked` becomes true (the charger needs a few seconds
-   to reach 10 V):
+#### Measuring the dock (new site or moved dock)
+
+`bagheera_dock_setup` measures everything from the unpowered dock and writes
+`maps/dock.yaml`:
+
+1. Place the dock with its tags ([step 2](#2-camera-calibration-and-tags))
+   and **unplug its power supply**. Without charge voltage there is no
+   `/docked` and no dock lock.
+2. Localize the robot (Foxglove *2D pose estimate* if needed; check that
+   `/scan` lies on the walls of `/map`).
+3. Put the robot onto the dock until the pins touch: push it by hand or drive
+   it with the game controller (`enabled: true` in `base.yaml`).
+4. Run the tool (keep 0.6 m behind the robot free):
 
    ```bash
-   ros2 topic echo /amcl_pose --once
+   docker exec -it bagheera-base bash -lc \
+     'source /opt/ros/kilted/setup.bash && source /bagheera_ws/install/setup.bash && ros2 run bagheera_base bagheera_dock_setup --execute'
    ```
 
-   Its x/y are the dock position, its heading a first guess for the dock
-   yaw. Enter `[x, y, yaw]` as `dock_pose` in `maps/dock.yaml`.
-2. **Staging pose.** Drive the robot to where it should start the approach:
-   about 0.6 m in front of the dock, on the axis, facing the dock, with both
-   tags in the camera image (check `/camera/h264`). Read `/amcl_pose` again:
-   `(sx, sy, syaw)`. Convert it into the dock frame with the dock pose
-   `(dx, dy, dyaw)`:
+   It
+   - **asks for the undock manoeuvre**: reverse distance and turn after
+     reversing (+ left, − right, 0 = no turn and Nav2 turns onto its path),
+     proposing the current values. Choose them so that the robot ends up in
+     free space at this dock;
+   - refines AMCL on the spot (aborts if its position std exceeds 10 cm)
+     and averages the docked pose;
+   - reverses 0.6 m straight at 5 cm/s with heading hold, switches the dock
+     camera on and measures both tags standing still;
+   - computes the dock pose: x/y from AMCL on the dock, yaw from AMCL out
+     there carried back by odometry (AMCL's heading is poorest right at the
+     dock), and ID 0's `axis_yaw_offset`;
+   - checks ID 1's measured offsets against `nav2_navigation.yaml` and warns
+     if ID 1 seems to have moved on the dock;
+   - prints the result and the resulting staging pose, asks before writing,
+     keeps the previous file as `dock.yaml.<time>.bak` and saves a report
+     `maps/dock_setup_<time>.json`.
 
-   ```text
-   staging_x_offset   =  cos(dyaw)·(sx−dx) + sin(dyaw)·(sy−dy)
-   staging_y_offset   = −sin(dyaw)·(sx−dx) + cos(dyaw)·(sy−dy)
-   staging_yaw_offset =  syaw − dyaw
-   ```
+   Options: `--undock-reverse`, `--undock-turn-deg` (skip the questions),
+   `--yes` (no questions at all), `--measure-distance` (default 0.6 m),
+   `--speed` (default 0.05 m/s).
+5. Plug the dock in again, `docker compose restart`, and test a docking run
+   ([step 5](#5-test)).
 
-3. **Better dock yaw (recommended).** AMCL's heading is least reliable right
-   at the dock. Trigger a docking run from the staging pose and read the first
-   `Dock estimate:` line while the robot stands there: `yaw` is the robot's
-   heading relative to the tag-derived dock axis. Then
-   `dock_yaw = syaw − yaw` (with `syaw` from `/amcl_pose` at the same
-   moment). Enter it in `maps/dock.yaml`. Recompute the staging offsets
-   only if the staging pose must stay at the same map position.
-4. Choose the undock turn in `maps/dock.yaml` (see above).
-5. `docker compose restart`.
+The staging pose does not have to be set again: it is defined relative to
+the dock (`staging_*_offset`) and moves with it.
+
+#### Staging offsets (first setup of a dock design only)
+
+The staging pose is where the approach starts: about 0.6 m in front of the
+dock, on the axis, facing the dock, with both tags in the camera image. The
+shipped offsets fit Bagheera's dock and tags. For a different dock or camera,
+drive the robot there, read `/amcl_pose` `(sx, sy, syaw)` and convert it into
+the dock frame with the dock pose `(dx, dy, dyaw)`:
+
+```text
+staging_x_offset   =  cos(dyaw)·(sx−dx) + sin(dyaw)·(sy−dy)
+staging_y_offset   = −sin(dyaw)·(sx−dx) + cos(dyaw)·(sy−dy)
+staging_yaw_offset =  syaw − dyaw
+```
+
+Enter them in the `bagheera_dock` block of `nav2_navigation.yaml` and
+restart.
 
 ### 4. Tag offsets
 
 The plugin needs to know where `base_link` is relative to tag ID 1 when the
 robot is docked (`external_detection_translation_x/y`) and how ID 0's
-direction relates to the docked heading (`axis_yaw_offset`).
+direction relates to the docked heading (`axis_yaw_offset`). The ID 1 offsets
+belong to the dock design and only need measuring once (the shipped values
+fit Bagheera's dock). `axis_yaw_offset` is measured by `bagheera_dock_setup`
+at every site; the tool below is for a new dock design.
 
 ```bash
 docker exec -it bagheera-base bash -lc \

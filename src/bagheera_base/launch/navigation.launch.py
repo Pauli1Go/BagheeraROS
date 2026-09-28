@@ -25,10 +25,14 @@ def _launch_setup(context):
     # Dock pose and undock manoeuvre of this site (maps/dock.yaml).
     site = load_dock_site(params)
     with open(params, encoding="utf-8") as handle:
-        dock_name = yaml.safe_load(handle)["docking_server"]["ros__parameters"]["docks"][0]
+        docking = yaml.safe_load(handle)["docking_server"]["ros__parameters"]
+    dock_name = docking["docks"][0]
+    dock_plugin = docking["dock_plugins"][0]
     site_log = LogInfo(msg=(
-        "Dock site from %s: pose [%.3f, %.3f, %.3f], undock %.2f m, turn %.1f deg"
-        % ((site.source,) + site.pose + (site.reverse_distance_m, math.degrees(site.turn_angle_rad)))
+        "Dock site from %s: pose [%.3f, %.3f, %.3f], undock %.2f m, turn %.1f deg, "
+        "axis_yaw_offset %.4f rad"
+        % ((site.source,) + site.pose + (
+            site.reverse_distance_m, math.degrees(site.turn_angle_rad), site.axis_yaw_offset))
     ))
 
     high_speed = (
@@ -216,7 +220,10 @@ def _launch_setup(context):
         executable="opennav_docking",
         name="docking_server",
         output="screen",
-        parameters=[params, {f"{dock_name}.pose": list(site.pose)}],
+        parameters=[params, {
+            f"{dock_name}.pose": list(site.pose),
+            f"{dock_plugin}.axis_yaw_offset": site.axis_yaw_offset,
+        }],
         remappings=[("cmd_vel", "/cmd_vel_docking")],
     )
     lifecycle_manager_docking = Node(

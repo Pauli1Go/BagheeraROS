@@ -70,7 +70,7 @@ Two AprilTags of family `tagStandard41h12`:
 | `staging_x_offset`, `staging_y_offset`, `staging_yaw_offset` | −0.6325 m, 0.0076 m, −0.017 rad | Staging pose relative to the dock pose (in the dock frame: x along the dock axis). About 0.63 m in front of the dock with both tags in view. |
 | `external_detection_translation_x` | −0.468 m | Offset from tag ID 1 to `base_link` at contact, along the dock axis. |
 | `external_detection_translation_y` | 0.002 m | Same, sideways. |
-| `axis_yaw_offset` | 0.0055 rad | Angle between ID 0's direction and the robot heading in the dock. |
+| `axis_yaw_offset` | 0.0055 rad | Angle between ID 0's direction and the robot heading in the dock. Depends on the wall ID 0 hangs on: `maps/dock.yaml` (`axis_yaw_offset_rad`, written by `bagheera_dock_setup`) overrides it. |
 | `require_axis_tag` | true | Without ID 0, stop instead of guessing the angle. |
 | `detection_timeout` | 3.0 s | A detection older than this counts as lost. Detections arrive 0.9–1.1 s after exposure. |
 | `position_filter_coef`, `yaw_filter_coef` | 0.3, 0.2 | Low-pass filters on the fused dock pose. |

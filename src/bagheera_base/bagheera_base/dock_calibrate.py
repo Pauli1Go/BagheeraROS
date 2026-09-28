@@ -36,6 +36,8 @@ from std_msgs.msg import Bool
 from tf2_ros import Buffer, TransformListener
 import tf2_geometry_msgs  # noqa: F401  registers PoseStamped transforms
 
+from .dock_setup_math import offsets_from_sample
+
 
 OUTPUT_ROOT = Path("/bagheera_ws/maps")
 FIXED_FRAME = "odom"
@@ -52,25 +54,6 @@ def _angle(value: float) -> float:
 
 def _circular_mean(values: list[float]) -> float:
     return math.atan2(sum(map(math.sin, values)), sum(map(math.cos, values)))
-
-
-def offsets_from_sample(
-    dock: tuple[float, float, float],
-    tag: tuple[float, float],
-    axis_yaw: float,
-) -> tuple[float, float, float]:
-    """Plugin parameters that map this tag sample onto the true dock pose.
-
-    dock is the docked base_link pose, tag the ID 1 centre and axis_yaw the raw
-    ID 0 direction, all in the same fixed frame. Returns (translation_x,
-    translation_y, axis_yaw_offset) in the plugin's conventions.
-    """
-    dock_x, dock_y, dock_yaw = dock
-    dx = dock_x - tag[0]
-    dy = dock_y - tag[1]
-    translation_x = math.cos(dock_yaw) * dx + math.sin(dock_yaw) * dy
-    translation_y = -math.sin(dock_yaw) * dx + math.cos(dock_yaw) * dy
-    return translation_x, translation_y, _angle(dock_yaw - axis_yaw)
 
 
 class DockCalibrate(Node):

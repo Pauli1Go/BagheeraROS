@@ -138,8 +138,13 @@ checks.
 
 ## Dock calibration
 
-`bagheera_dock_calibrate` (no motion): see
-[docking.md](docking.md#4-tag-offsets).
+`bagheera_dock_setup --execute`: measures a new or moved dock from the
+unpowered dock (reverses 0.6 m by itself), asks for the undock manoeuvre and
+writes `maps/dock.yaml`. See
+[docking.md](docking.md#measuring-the-dock-new-site-or-moved-dock).
+
+`bagheera_dock_calibrate` (no motion): ID 1 and ID 0 offsets for a new dock
+design, see [docking.md](docking.md#4-tag-offsets).
 
 ## Scripts in `tools/`
 

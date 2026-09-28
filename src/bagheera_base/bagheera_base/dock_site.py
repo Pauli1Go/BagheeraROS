@@ -7,11 +7,15 @@ Where the dock stands belongs to the site like the map, so it lives in
     undock:
       reverse_distance_m: 0.80    # straight back out of the dock
       turn_angle_deg: 90.0        # + left, - right, 0 = no turn
+    axis_yaw_offset_rad: 0.0055   # ID 0 (wall) direction -> docked heading
 
-Every key is optional. Missing keys, or a missing file, fall back to the
-example values in ``nav2_navigation.yaml`` (``docking_server.home_dock.pose``
-and the ``bagheera_autonomy_dock_guard`` parameters). The launch files pass
-the result to the docking server, pose persistence and the dock guard.
+``bagheera_dock_setup`` writes the file. Every key is optional: missing keys,
+or a missing file, fall back to the example values in ``nav2_navigation.yaml``
+(``docking_server.home_dock.pose``, the dock plugin's ``axis_yaw_offset`` and
+the ``bagheera_autonomy_dock_guard`` parameters). ID 0 hangs on the site's
+wall, so its offset belongs here; ID 1 sits on the dock itself and its
+offsets stay in nav2_navigation.yaml. The launch files pass the result to the
+docking server, pose persistence and the dock guard.
 """
 
 from __future__ import annotations
@@ -30,6 +34,7 @@ class DockSite:
     pose: tuple[float, float, float]
     reverse_distance_m: float
     turn_angle_rad: float
+    axis_yaw_offset: float
     # Where the values came from, for the start-up log.
     source: str
 
@@ -47,6 +52,8 @@ def load_dock_site(nav2_navigation_config: str, site_file: str = SITE_FILE) -> D
     docking = nav2["docking_server"]["ros__parameters"]
     guard = nav2["bagheera_autonomy_dock_guard"]["ros__parameters"]
     pose = tuple(float(value) for value in docking[docking["docks"][0]]["pose"])
+    plugin = docking[docking["dock_plugins"][0]]
+    axis_offset = float(plugin.get("axis_yaw_offset", 0.0))
     reverse = float(guard.get("reverse_distance_m", 0.80))
     turn = float(guard.get("turn_angle_rad", math.pi / 2.0))
     source = nav2_navigation_config
@@ -66,13 +73,15 @@ def load_dock_site(nav2_navigation_config: str, site_file: str = SITE_FILE) -> D
             reverse = _finite(undock["reverse_distance_m"], "undock.reverse_distance_m")
         if "turn_angle_deg" in undock:
             turn = math.radians(_finite(undock["turn_angle_deg"], "undock.turn_angle_deg"))
+        if "axis_yaw_offset_rad" in site:
+            axis_offset = _finite(site["axis_yaw_offset_rad"], "axis_yaw_offset_rad")
         source = site_file
 
     if reverse <= 0.0:
         raise ValueError("undock reverse distance must be positive")
     if abs(turn) > math.pi:
         raise ValueError("undock turn angle must be within +-180 deg")
-    return DockSite(pose, reverse, turn, source)
+    return DockSite(pose, reverse, turn, axis_offset, source)
 
 
 def dump_dock_site(site: DockSite) -> str:
@@ -85,4 +94,6 @@ def dump_dock_site(site: DockSite) -> str:
         f"  reverse_distance_m: {site.reverse_distance_m:.2f}\n"
         "  # + left, - right, 0 = no turn (Nav2 turns onto its path)\n"
         f"  turn_angle_deg: {math.degrees(site.turn_angle_rad):.1f}\n"
+        "# ID 0 (wall tag) direction -> robot heading in the dock\n"
+        f"axis_yaw_offset_rad: {site.axis_yaw_offset:.5f}\n"
     )

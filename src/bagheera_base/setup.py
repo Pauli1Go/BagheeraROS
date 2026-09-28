@@ -48,6 +48,7 @@ setup(
             "bagheera_localization_exclusion_guard = bagheera_base.localization_exclusion_guard:main",
             "bagheera_keepout_mask_relay = bagheera_base.keepout_mask_relay:main",
             "bagheera_patrol = bagheera_base.patrol:main",
+            "bagheera_dock_setup = bagheera_base.dock_setup:main",
         ],
     },
 )

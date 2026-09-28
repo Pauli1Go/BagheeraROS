@@ -74,7 +74,7 @@ Bagheera. Follow the guides in order:
    optical flow, battery offset, camera.
 3. [Mapping](docs/mapping.md): create and save a map, keepout and exclusion
    masks.
-4. [Docking](docs/docking.md): tags, dock pose, staging pose, tag offsets.
+4. [Docking](docs/docking.md): tags, measuring or moving the dock (`bagheera_dock_setup`), undock manoeuvre, tag offsets.
 5. [Operation](docs/operation.md): Foxglove, goals, docking, dock sleep,
    battery, patrol.
 
