@@ -1,11 +1,15 @@
-"""Drive a closed waypoint loop with battery- or lap-driven docking.
+"""Drive saved waypoint paths with battery- or lap-driven docking.
 
-Triggers (std_msgs/Bool, publish ``{"data": true}``):
+Paths live in maps/paths/<name>.yaml (path_store.py) and are made with the
+``bagheera_paths`` command line tool. Triggers (std_msgs/Bool,
+``{"data": true}``):
 
-- ``/patrol/start_charge``: loop until the battery is LOW/CRITICAL, charge
-  until FULL, continue.
-- ``/patrol/start_dock_cycle``: dock after every lap, pause, continue.
+- ``/patrol/<name>``: start that path in its mode (``once``: one lap, then
+  dock; ``dock_cycle``: dock after every lap, pause, continue; ``charge``:
+  loop until the battery is LOW/CRITICAL, charge until FULL, continue).
 - ``/patrol/cancel``: stop; the robot stays where it is.
+- ``/patrol/reload``: re-read the paths (also happens by itself within 5 s
+  of a change).
 
 Moving the game controller or sending a Foxglove goal also cancels the
 patrol. State is published as JSON on ``/patrol/status``; every event is
@@ -22,7 +26,7 @@ import time
 from datetime import datetime
 
 from action_msgs.msg import GoalStatus
-from geometry_msgs.msg import Point, PoseStamped, TwistStamped
+from geometry_msgs.msg import PoseStamped, TwistStamped
 from nav2_msgs.action import NavigateToPose
 import rclpy
 from rclpy.action import ActionClient
@@ -30,19 +34,19 @@ from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Bool, Float32, String
-from visualization_msgs.msg import Marker, MarkerArray
+from visualization_msgs.msg import MarkerArray
 
 from .battery_math import CRITICAL, FULL, NORMAL
+from .path_markers import path_markers
+from .path_store import PATHS_DIR, PatrolPath, directory_stamp, list_paths, load_path
 from .patrol_logic import (
-    CHARGE,
     DOCK,
+    DOCK_AND_FINISH,
     DOCK_AND_STOP,
-    DOCK_CYCLE,
     NAVIGATE,
     PAUSE,
     WAIT_FOR_FULL,
     PatrolPlan,
-    parse_waypoints,
 )
 
 IDLE = "IDLE"
@@ -74,7 +78,7 @@ def _command_is_active(message: TwistStamped) -> bool:
 class Patrol(Node):
     def __init__(self) -> None:
         super().__init__("bagheera_patrol")
-        self.declare_parameter("waypoints", [0.0])
+        self.declare_parameter("paths_dir", PATHS_DIR)
         self.declare_parameter("dock_pause_s", 60.0)
         self.declare_parameter("dock_attempts", 3)
         self.declare_parameter("max_consecutive_failures", 3)
@@ -87,9 +91,11 @@ class Patrol(Node):
         self.declare_parameter("max_charge_s", 21600.0)
         self.declare_parameter("log_dir", "/bagheera_ws/test_logs")
 
-        self._waypoints = parse_waypoints(
-            list(self.get_parameter("waypoints").get_parameter_value().double_array_value)
-        )
+        self._paths_dir = str(self.get_parameter("paths_dir").value)
+        self._path: PatrolPath | None = None
+        self._route: list[tuple[float, float, float]] = []
+        self._path_subscriptions: dict = {}
+        self._paths_stamp: tuple | None = None
         self._dock_pause = float(self.get_parameter("dock_pause_s").value)
         self._dock_attempts = int(self.get_parameter("dock_attempts").value)
         self._max_failures = int(self.get_parameter("max_consecutive_failures").value)
@@ -112,6 +118,7 @@ class Patrol(Node):
         self._dock_attempt = 0
         self._dock_seen_active = False
         self._stop_after_dock = False
+        self._finish_after_dock = False
         self._last_wake = 0.0
         self._last_undock_request = 0.0
         self._goal_handle = None
@@ -138,9 +145,8 @@ class Patrol(Node):
         self._undock_pub = self.create_publisher(Bool, "/dock/undock", 10)
         self._nav = ActionClient(self, NavigateToPose, "/navigate_to_pose")
 
-        self.create_subscription(Bool, "/patrol/start_charge", self._on_start_charge, 10)
-        self.create_subscription(Bool, "/patrol/start_dock_cycle", self._on_start_cycle, 10)
         self.create_subscription(Bool, "/patrol/cancel", self._on_cancel, 10)
+        self.create_subscription(Bool, "/patrol/reload", self._on_reload, 10)
         self.create_subscription(String, "/battery/level", self._on_level, latched)
         self.create_subscription(Float32, "/battery/voltage", self._on_voltage, 10)
         self.create_subscription(Bool, "/docked", self._on_docked, latched)
@@ -154,12 +160,10 @@ class Patrol(Node):
         )
         self.create_timer(0.5, self._tick)
         self.create_timer(1.0, self._publish_status)
+        self.create_timer(5.0, self._check_paths)
+        self._check_paths()
         self._publish_markers()
         self._publish_status()
-        self.get_logger().info(
-            f"Patrol ready: {len(self._waypoints)} waypoints; start with "
-            "/patrol/start_charge or /patrol/start_dock_cycle"
-        )
 
     # ------------------------------------------------------------------ inputs
 
@@ -206,13 +210,47 @@ class Patrol(Node):
         if self._state in RUNNING_STATES:
             self._stop("cancelled by a Foxglove navigation goal")
 
-    def _on_start_charge(self, message: Bool) -> None:
+    def _on_reload(self, message: Bool) -> None:
         if message.data:
-            self._start(CHARGE)
+            self._paths_stamp = None
+            self._check_paths()
 
-    def _on_start_cycle(self, message: Bool) -> None:
-        if message.data:
-            self._start(DOCK_CYCLE)
+    def _check_paths(self) -> None:
+        """Create one /patrol/<name> trigger per saved path, drop removed ones."""
+        stamp = directory_stamp(self._paths_dir)
+        if stamp == self._paths_stamp:
+            return
+        self._paths_stamp = stamp
+        paths, errors = list_paths(self._paths_dir)
+        for error in errors:
+            self.get_logger().error(f"Ignoring path file {error}")
+        names = {path.name for path in paths}
+        for name in list(self._path_subscriptions):
+            if name not in names:
+                self.destroy_subscription(self._path_subscriptions.pop(name))
+        for name in sorted(names - set(self._path_subscriptions)):
+            self._path_subscriptions[name] = self.create_subscription(
+                Bool, f"/patrol/{name}",
+                lambda message, name=name: self._on_path_trigger(name, message), 10,
+            )
+        summary = ", ".join(
+            f"{p.name} ({p.mode}, {len(p.waypoints)} wp{', closed' if p.closed else ''})"
+            for p in paths
+        ) or "none"
+        self.get_logger().info(f"Patrol paths in {self._paths_dir}: {summary}")
+
+    def _on_path_trigger(self, name: str, message: Bool) -> None:
+        if not message.data:
+            return
+        try:
+            path = load_path(self._paths_dir, name)
+        except (OSError, ValueError) as error:
+            self.get_logger().error(f"Cannot start path '{name}': {error}")
+            return
+        if not path.waypoints:
+            self.get_logger().error(f"Path '{name}' has no waypoints")
+            return
+        self._start(path)
 
     def _on_cancel(self, message: Bool) -> None:
         if message.data and self._state in RUNNING_STATES:
@@ -220,19 +258,27 @@ class Patrol(Node):
 
     # ----------------------------------------------------------- state changes
 
-    def _start(self, mode: str) -> None:
+    def _start(self, path: PatrolPath) -> None:
         if self._state in RUNNING_STATES:
             self.get_logger().warn("Patrol already running; cancel it first")
             return
+        self._path = path
+        self._route = path.route()
         self._plan = PatrolPlan(
-            len(self._waypoints), mode, self._max_failures, self._max_retries
+            len(self._route), path.mode, self._max_failures, self._max_retries
         )
         self._docks = 0
         self._dock_failures = 0
         self._stop_after_dock = False
+        self._finish_after_dock = False
         self._run_started = time.monotonic()
-        self._open_log(mode)
-        self._log("start", f"{len(self._waypoints)} waypoints, level {self._level}")
+        self._publish_markers()
+        self._open_log(path.name)
+        self._log(
+            "start",
+            f"path {path.name}, mode {path.mode}, {len(self._route)} route points"
+            f"{' (closed)' if path.closed else ''}, level {self._level}",
+        )
         self._do(self._plan.start(self._level, self._docked))
 
     def _do(self, step: str) -> None:
@@ -240,6 +286,10 @@ class Patrol(Node):
         if step == NAVIGATE:
             self._leave_or_navigate()
         elif step == DOCK:
+            self._start_docking()
+        elif step == DOCK_AND_FINISH:
+            self._finish_after_dock = True
+            self._log("path_done", f"lap of {self._path.name} complete")
             self._start_docking()
         elif step == DOCK_AND_STOP:
             self._stop_after_dock = True
@@ -281,7 +331,7 @@ class Patrol(Node):
         if not self._nav.server_is_ready():
             self._fail("Nav2 navigate_to_pose server unavailable")
             return
-        x, y, yaw = self._waypoints[plan.index]
+        x, y, yaw = self._route[plan.index]
         goal = NavigateToPose.Goal()
         goal.pose.header.frame_id = "map"
         goal.pose.header.stamp = self.get_clock().now().to_msg()
@@ -420,6 +470,10 @@ class Patrol(Node):
             f"attempt {self._dock_attempt}" if self._dock_attempt else "already docked",
             duration=time.monotonic() - self._phase_started,
         )
+        if self._finish_after_dock:
+            self._log("finished", "")
+            self._set_state(IDLE, f"path {self._path.name} done, docked")
+            return
         if self._stop_after_dock:
             self._fail(
                 f"stopped in the dock after {self._max_failures} unreachable waypoints"
@@ -512,9 +566,10 @@ class Patrol(Node):
         payload = {
             "state": self._state,
             "detail": self._detail,
+            "path": self._path.name if self._path else "",
             "mode": plan.mode if plan else "",
             "waypoint": plan.index + 1 if plan else 0,
-            "waypoints": len(self._waypoints),
+            "waypoints": len(self._route),
             "laps": plan.laps if plan else 0,
             "reached": plan.reached if plan else 0,
             "skipped": plan.skipped if plan else 0,
@@ -527,52 +582,18 @@ class Patrol(Node):
         self._status_pub.publish(String(data=json.dumps(payload)))
 
     def _publish_markers(self) -> None:
-        stamp = self.get_clock().now().to_msg()
-        markers = MarkerArray()
-        line = Marker()
-        line.header.frame_id = "map"
-        line.header.stamp = stamp
-        line.ns = "patrol_loop"
-        line.type = Marker.LINE_STRIP
-        line.scale.x = 0.03
-        line.color.r, line.color.g, line.color.b, line.color.a = 0.2, 0.6, 1.0, 0.8
-        line.pose.orientation.w = 1.0
-        for x, y, _yaw in self._waypoints + self._waypoints[:1]:
-            line.points.append(Point(x=x, y=y, z=0.05))
-        markers.markers.append(line)
-        for number, (x, y, yaw) in enumerate(self._waypoints, 1):
-            arrow = Marker()
-            arrow.header.frame_id = "map"
-            arrow.header.stamp = stamp
-            arrow.ns = "patrol_waypoints"
-            arrow.id = number
-            arrow.type = Marker.ARROW
-            arrow.pose.position.x, arrow.pose.position.y = x, y
-            arrow.pose.orientation.z, arrow.pose.orientation.w = _quaternion_z_w(yaw)
-            arrow.scale.x, arrow.scale.y, arrow.scale.z = 0.4, 0.06, 0.06
-            arrow.color.r, arrow.color.g, arrow.color.b, arrow.color.a = 1.0, 0.5, 0.0, 1.0
-            markers.markers.append(arrow)
-            label = Marker()
-            label.header.frame_id = "map"
-            label.header.stamp = stamp
-            label.ns = "patrol_labels"
-            label.id = number
-            label.type = Marker.TEXT_VIEW_FACING
-            label.pose.position.x, label.pose.position.y = x, y
-            label.pose.position.z = 0.3
-            label.pose.orientation.w = 1.0
-            label.scale.z = 0.25
-            label.color.r = label.color.g = label.color.b = label.color.a = 1.0
-            label.text = str(number)
-            markers.markers.append(label)
-        self._marker_pub.publish(markers)
+        path = self._path
+        self._marker_pub.publish(path_markers(
+            path.waypoints if path else [], path.closed if path else False,
+            self.get_clock().now().to_msg(),
+        ))
 
-    def _open_log(self, mode: str) -> None:
+    def _open_log(self, label: str) -> None:
         self._log_path = None
         try:
             os.makedirs(self._log_dir, exist_ok=True)
             path = os.path.join(
-                self._log_dir, f"patrol_{datetime.now():%Y%m%d_%H%M%S}_{mode}.csv"
+                self._log_dir, f"patrol_{datetime.now():%Y%m%d_%H%M%S}_{label}.csv"
             )
             with open(path, "w", newline="") as handle:
                 csv.writer(handle).writerow([

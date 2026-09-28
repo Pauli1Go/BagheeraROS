@@ -37,7 +37,7 @@ robot.
 | Dock pose and undock manoeuvre | `maps/dock.yaml` (`dock_pose`, `undock`); fallback `nav2_navigation.yaml` | site |
 | Staging offset and tag offsets | `nav2_navigation.yaml` → `docking_server.bagheera_dock` | robot + site |
 | AprilTag IDs and sizes | `nav2_navigation.yaml` → `dock_apriltag`, `bagheera_dock_tag_pose` | site |
-| Patrol waypoints | `patrol.yaml` | site |
+| Patrol paths (waypoints, mode, closed) | `maps/paths/<name>.yaml`, made with `tools/paths.sh` | site |
 
 Order of work for a new robot: [installation](../installation.md) →
 [calibration](../calibration.md) → [mapping](../mapping.md) →

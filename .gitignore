@@ -6,8 +6,8 @@ __pycache__/
 .pytest_cache/
 .DS_Store
 src/bagheera_base/config/calib_undistorted_preview.png
-# Maps, masks, calibrations and test results are site-specific: keep them on
-# the robot only.
+# Maps, masks, calibrations, the dock (maps/dock.yaml), saved patrol paths
+# (maps/paths/) and test results are site-specific: keep them on the robot only.
 maps/*
 !maps/.gitkeep
 sensor_logs/

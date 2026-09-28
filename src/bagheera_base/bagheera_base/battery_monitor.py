@@ -100,13 +100,15 @@ class BatteryMonitor(Node):
         level = self._tracker.level
         if self._tracker.voltage is None or level == self._published_level:
             return
-        log = (
-            self.get_logger().warning
-            if level in ("LOW", "CRITICAL")
-            else self.get_logger().info
+        text = "Battery level %s at %.2f V (~%.0f %%)" % (
+            level, self._tracker.voltage, self._tracker.percentage
         )
-        log("Battery level %s at %.2f V (~%.0f %%)"
-            % (level, self._tracker.voltage, self._tracker.percentage))
+        # rclpy rejects one call site logging with changing severities, so
+        # warning and info need separate calls.
+        if level in ("LOW", "CRITICAL"):
+            self.get_logger().warning(text)
+        else:
+            self.get_logger().info(text)
         self._level_pub.publish(String(data=level))
         self._published_level = level
 

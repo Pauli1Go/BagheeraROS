@@ -70,7 +70,7 @@ manual_control.launch.py            (compose.yaml default command)
 │   ├─ bagheera_dock_trigger, bagheera_autonomy_dock_guard
 │   ├─ bagheera_goal_pose_bridge, bagheera_localization_exclusion_guard,
 │   │  bagheera_keepout_mask_relay
-│   └─ bagheera_patrol                patrol.yaml
+│   └─ bagheera_patrol                patrol.yaml + maps/paths/*.yaml
 └─ foxglove_bridge                                           [use_foxglove]
 
 mapping.launch.py                    slam.yaml (started separately, see mapping.md)
@@ -94,7 +94,7 @@ for `bagheera_pose_persistence`. The launch arguments are listed in
 | `config/nav2_localization.yaml` | map_server, AMCL, pose persistence | [localization.md](config/localization.md#nav2_localizationyaml) |
 | `config/slam.yaml` | slam_toolbox (mapping only) | [localization.md](config/localization.md#slamyaml) |
 | `config/nav2_navigation.yaml` | Nav2 servers, costmaps, masks, guards, docking | [navigation.md](config/navigation.md), [docking.md](config/docking.md) |
-| `config/patrol.yaml` | waypoint patrol | [patrol.md](config/patrol.md) |
+| `config/patrol.yaml` | patrol behaviour (paths are in `maps/paths/`) | [patrol.md](config/patrol.md) |
 | `config/collision_monitor.yaml` | not launched (kept for reference) | [navigation.md](config/navigation.md#collision_monitoryaml) |
 | `behavior_trees/*.xml` | bt_navigator, docking_server | [navigation.md](config/navigation.md#behavior-trees) |
 
@@ -216,7 +216,8 @@ server keep running. Undocking and teleop only drive in `awake`.
 
 ### Patrol (`/patrol/status`)
 
-Drives the waypoint loop from `patrol.yaml`, docks according to the mode and
+Drives the saved paths from `maps/paths/` (`/patrol/<name>`; made with
+`tools/paths.sh`), docks according to the path's mode and
 the battery level (`/battery/level`: NORMAL, LOW, CRITICAL, FULL), wakes the
 robot, lets the dock guard reverse out (`UNDOCKING`, `/dock/undock`) before
 the first goal and skips waypoints Nav2 cannot reach. Details

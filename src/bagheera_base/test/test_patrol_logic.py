@@ -4,9 +4,11 @@ from bagheera_base.battery_math import CRITICAL, FULL, LOW, NORMAL
 from bagheera_base.patrol_logic import (
     CHARGE,
     DOCK,
+    DOCK_AND_FINISH,
     DOCK_AND_STOP,
     DOCK_CYCLE,
     NAVIGATE,
+    ONCE,
     PAUSE,
     WAIT_FOR_FULL,
     PatrolPlan,
@@ -134,6 +136,13 @@ class FailureTest(unittest.TestCase):
         plan.retry_after("Costmap timed out waiting for update")
         self.assertEqual(plan.critical_during_navigation(), DOCK)
         self.assertEqual(plan.retries, 0)
+
+    def test_once_docks_and_finishes_after_one_lap(self):
+        plan = PatrolPlan(2, ONCE)
+        self.assertEqual(plan.start(NORMAL, docked=True), NAVIGATE)
+        self.assertEqual(plan.waypoint_done(True, NORMAL), NAVIGATE)
+        self.assertEqual(plan.waypoint_done(True, NORMAL), DOCK_AND_FINISH)
+        self.assertEqual(plan.laps, 1)
 
     def test_rejects_bad_setup(self):
         with self.assertRaises(ValueError):

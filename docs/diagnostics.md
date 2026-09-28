@@ -150,6 +150,7 @@ design, see [docking.md](docking.md#4-tag-offsets).
 
 | Script | Runs | Purpose |
 |---|---|---|
+| `paths.sh` | host | Patrol path editor: interactive menu, or `bagheera_paths` sub-commands ([operation.md](operation.md#creating-and-editing-paths)). |
 | `make_masks.py` | host | Create empty keepout / exclusion masks for a map ([mapping.md](mapping.md#8-masks)). |
 | `make_apriltags.py` | host | Print-ready AprilTag PDF with exact sizes ([docking.md](docking.md#2-camera-calibration-and-tags)). |
 | `calibrate_fisheye.py` | host with OpenCV | Fisheye camera calibration from checkerboard images. |

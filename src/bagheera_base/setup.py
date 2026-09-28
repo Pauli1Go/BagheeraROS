@@ -49,6 +49,7 @@ setup(
             "bagheera_keepout_mask_relay = bagheera_base.keepout_mask_relay:main",
             "bagheera_patrol = bagheera_base.patrol:main",
             "bagheera_dock_setup = bagheera_base.dock_setup:main",
+            "bagheera_paths = bagheera_base.paths_cli:main",
         ],
     },
 )

@@ -1,24 +1,9 @@
 bagheera_patrol:
   ros__parameters:
-    # Closed loop in map coordinates: x [m], y [m], yaw [rad] per waypoint,
-    # driven in this order and back to the first.
-    # EXAMPLE VALUES from the Bagheera office map: replace them with
-    # waypoints of your own map (docs/config/patrol.md). Clicked in Foxglove as
-    # /initialpose on 2026-09-24; every footprint was checked against /map
-    # and the keepout mask, and NavFn found a path for every leg (~69 m/lap).
-    waypoints: [
-      -2.002, 4.656, 1.604,   # 1
-      -2.227, 5.788, -3.055,   # 2
-      -2.854, 5.242, -1.464,   # 3
-      -9.218, -10.157, 1.863,   # 4
-      -10.989, -11.314, -1.664,   # 5
-      -11.934, -16.856, -1.595,   # 6
-      -11.195, -18.174, 0.137,   # 7
-      -10.008, -17.469, 1.940,   # 8
-      -8.129, -14.475, 0.483,   # 9
-      -2.393, -13.797, -0.429,   # 10
-      -0.737, -13.364, 1.673     # 11
-    ]
+    # Paths are site data: one file per path in this folder (maps/paths on
+    # the host, not in git), made with `ros2 run bagheera_base bagheera_paths create NAME ...` and
+    # started with /patrol/<name>. See docs/operation.md#waypoint-patrol.
+    paths_dir: /bagheera_ws/maps/paths
     # dock_cycle mode: time in the dock between two laps.
     dock_pause_s: 60.0
     # /dock/trigger attempts per docking (each already includes Nav2's own

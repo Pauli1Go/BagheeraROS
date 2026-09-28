@@ -1,11 +1,12 @@
 """ROS-free decisions of the waypoint patrol (see patrol.py).
 
-Two modes drive the same closed waypoint loop:
+Three modes drive a path's route (see path_store.PatrolPath.route):
 
 - ``charge``: patrol until the battery is LOW (finish the current waypoint,
   then dock) or CRITICAL (dock at once), charge until FULL, resume.
 - ``dock_cycle``: dock after every lap, pause, undock and continue. A LOW or
   CRITICAL battery additionally charges until FULL before continuing.
+- ``once``: one lap, then dock and stop.
 
 A Nav2 abort is not always an unreachable waypoint. Costmap update timeouts,
 TF/extrapolation errors, rejected goals and planner failures also happen when
@@ -23,12 +24,14 @@ from .battery_math import CRITICAL, LOW
 
 CHARGE = "charge"
 DOCK_CYCLE = "dock_cycle"
-MODES = (CHARGE, DOCK_CYCLE)
+ONCE = "once"
+MODES = (ONCE, DOCK_CYCLE, CHARGE)
 
 # Next steps returned by PatrolPlan.
 NAVIGATE = "navigate"
 DOCK = "dock"
 DOCK_AND_STOP = "dock_and_stop"
+DOCK_AND_FINISH = "dock_and_finish"
 WAIT_FOR_FULL = "wait_for_full"
 PAUSE = "pause"
 
@@ -130,6 +133,8 @@ class PatrolPlan:
         if level in (LOW, CRITICAL):
             self.charge_to_full = True
             return DOCK
+        if self.mode == ONCE and lap_complete:
+            return DOCK_AND_FINISH
         if self.mode == DOCK_CYCLE and lap_complete:
             return DOCK
         return NAVIGATE

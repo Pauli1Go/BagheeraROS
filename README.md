@@ -36,7 +36,9 @@ It never starts the blade, GNSS or mowing behavior.
 - **Dock sleep**: LiDAR, IMU, optical flow, camera and Nav2 sleep while
   charging; a wake-up re-anchors the pose before driving.
 - **Battery monitor** for a 7S Li-Ion pack (voltage-based, measured offset
-  correction) and a **waypoint patrol** that docks when the battery is low.
+  correction) and **waypoint patrols**: named paths clicked in Foxglove
+  (`tools/paths.sh`), each with its own trigger, that dock after a lap or
+  when the battery is low.
 - **Foxglove** as the user interface: map, goals, camera (hardware H.264),
   status topics.
 - Calibration and diagnostic tools (360° heading test, rotation-shift test,

@@ -104,15 +104,84 @@ by themselves. Thresholds and the measured voltage offset:
 
 ## Waypoint patrol
 
-`bagheera_patrol` drives the closed waypoint loop from `config/patrol.yaml`
-(see [config/patrol.md](config/patrol.md) for how to collect waypoints).
-Start one of two modes with `{"data": true}`:
+`bagheera_patrol` drives saved **paths**: waypoints (position and heading,
+in order) plus a mode and whether the lap is closed. Each path is one file
+`maps/paths/<name>.yaml` (site data, not in git) and has its own trigger:
+publish `{"data": true}` on `/patrol/<name>`.
 
-| Topic | Mode |
+| Mode | What a start does |
 |---|---|
-| `/patrol/start_charge` | Loop until `/battery/level` is `LOW` (finish the current waypoint, then dock) or `CRITICAL` (cancel and dock at once). Charge until `FULL`, then continue with the next waypoint. |
-| `/patrol/start_dock_cycle` | Dock after every lap, wait `dock_pause_s` (60 s), continue. A low battery charges until `FULL` instead. |
-| `/patrol/cancel` | Stop the current goal or docking; the robot stays where it is. A controller movement or a Foxglove goal cancels too. |
+| `once` | Drive the path once, then dock and stop. |
+| `dock_cycle` | Dock after every lap, wait `dock_pause_s` (60 s), continue. A low battery charges until `FULL` instead. |
+| `charge` | Loop until `/battery/level` is `LOW` (finish the current waypoint, then dock) or `CRITICAL` (cancel and dock at once). Charge until `FULL`, then continue with the next waypoint. |
+
+A **closed** path drives back to its first waypoint at the end of each lap;
+an **open** one ends the lap at its last waypoint (then docks in `once` and
+`dock_cycle`).
+
+`/patrol/cancel` stops the current goal or docking; the robot stays where it
+is. A controller movement or a Foxglove goal cancels too. `cancel` and the
+patrol's other topic names (`status`, `waypoints`, `reload`, …) cannot be
+path names.
+
+### Creating and editing paths
+
+On the robot host start the path editor (it enters the container and sets up
+ROS by itself; it does not move the robot):
+
+```bash
+~/BagheeraROS/tools/paths.sh
+```
+
+```text
+Paths in /bagheera_ws/maps/paths:
+   1  start_charge         charge      open      11 waypoints
+   2  start_dock_cycle     dock_cycle  open      11 waypoints
+[n] new  [e] edit  [s] show  [r] rename  [d] delete  [q] quit
+```
+
+- **new**: asks for the name, the mode (1 `once`, 2 `dock_cycle`, 3
+  `charge`) and whether the path is closed, then records the waypoints.
+- **edit**: add waypoints at the end, clear and record again, change the
+  mode, switch open/closed, show.
+- **rename** changes the trigger (`/patrol/<new name>`); **delete** asks
+  first. Paths are picked by number or name.
+
+For scripts the same works non-interactively
+(`tools/paths.sh <command>`, or `ros2 run bagheera_base bagheera_paths
+<command>` inside the container):
+
+```bash
+tools/paths.sh create lager --mode dock_cycle --closed   # new path, then record
+tools/paths.sh edit lager                                # add waypoints at the end
+tools/paths.sh edit lager --mode once --open --no-record # change settings only
+tools/paths.sh edit lager --clear                        # record again from scratch
+tools/paths.sh list
+tools/paths.sh show lager
+tools/paths.sh rename lager halle                        # trigger becomes /patrol/halle
+tools/paths.sh delete halle
+```
+
+Recording waypoints (new path, edit → add, or `create`/`edit`):
+
+1. Localize the robot; in Foxglove's 3D panel use the fixed/display frame
+   `map`.
+2. In the 3D panel's publish settings set the **Publish pose** topic to
+   `/patrol/add_waypoint` (Foxglove keeps it in the layout).
+3. Click-drag each waypoint in driving order: the click is the position, the
+   drag direction the heading. Nothing is sent to Nav2 and AMCL stays put.
+4. Each waypoint is checked with the robot's footprint against the map and
+   the keepout mask; a rejected one prints why. Accepted waypoints print in
+   the terminal, appear as yellow numbered arrows on `/patrol/edit_markers`
+   and are saved at once.
+5. `u` + Enter removes the last waypoint, `l` lists them, `q` (or Ctrl-C)
+   finishes.
+
+The patrol picks up new, changed, renamed and deleted paths within 5 s
+(or at once on `/patrol/reload`); no restart. The path being driven is shown
+on `/patrol/waypoints`.
+
+### Behaviour while driving
 
 - A waypoint Nav2 aborts is skipped; three skips in a row dock and stop the
   patrol. Aborts caused by late data (costmap timeout, TF error, planner
