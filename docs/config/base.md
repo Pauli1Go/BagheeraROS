@@ -65,7 +65,9 @@ driver exposes under `/dev/input`). **Off by default**: the node polls the
 joystick continuously, which costs about 10 % of a Pi 4 core even with no
 controller connected. Set `enabled: true` and run `docker compose restart`
 to use it (driving, mapping, calibration drives, waking the robot).
-Without it, `/dock/wake` or an autonomous goal wakes the robot. Holding the deadman button publishes
+Without it, `/dock/wake` or an autonomous goal wakes the robot.
+
+Holding the deadman button publishes
 `/cmd_vel_teleop`. Releasing it sends zero velocity once. Teleop has
 priority over autonomy in `twist_mux`. Pressing the deadman in the dock also
 wakes a sleeping robot (`/dock/wake`).

@@ -127,6 +127,7 @@ class DockSleep(Node):
         self._dock_active = False
         self._last_activity = time.monotonic()
         self._lidar: subprocess.Popen | None = None
+        self._lidar_stop_pending = False
         self._lidar_last_start = 0.0
         self._odom: Odometry | None = None
         self._scan_stamps: deque[float] = deque()
@@ -217,6 +218,7 @@ class DockSleep(Node):
         self._watch_commands(docked)
         if not docked and self._state != AWAKE:
             # Pushed or driven out by hand: nothing to anchor any more.
+            self._lidar_stop_pending = False
             self._drop_wake_subscriptions()
             self._set_state(AWAKE, "left the dock")
             self._want_layers(True)
@@ -311,10 +313,22 @@ class DockSleep(Node):
         # AMCL keeps map -> odom valid for the TF cache time (10 s) after the
         # last scan; the pause is done long before the costmap would fail.
         self._want_nav(False)
-        self._stop_lidar()
+        # The LiDAR stops once the obstacle layers are off (see _tick);
+        # stopping it first made the costmaps warn about a stale /scan.
         self._want_layers(False)
+        self._lidar_stop_pending = True
+        self._tick_sleeping(time.monotonic())
+
+    def _tick_sleeping(self, now: float) -> None:
+        if not self._lidar_stop_pending:
+            return
+        layers_off = not self._layer_clients or self._layers_confirmed is False
+        if layers_off or now - self._state_since > 3.0:
+            self._lidar_stop_pending = False
+            self._stop_lidar()
 
     def _start_wake(self, reason: str) -> None:
+        self._lidar_stop_pending = False
         self._drop_wake_subscriptions()
         self._scan_stamps.clear()
         self._imu_fresh = not self._wt901_enabled
@@ -580,6 +594,9 @@ class DockSleep(Node):
                 and now >= self._sleep_not_before
             ):
                 self._sleep(f"docked and idle for {self._sleep_delay:.0f} s")
+            return
+        if self._state == SLEEPING:
+            self._tick_sleeping(now)
             return
         if self._state == FAULT:
             self._ensure_lidar()

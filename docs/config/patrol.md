@@ -12,6 +12,7 @@ docking tests. Usage: [operation.md](../operation.md#waypoint-patrol).
 | `max_transient_retries`, `retry_delay_s` | 2, 3 s | Aborts caused by late navigation data (costmap timeout, TF/extrapolation error, rejected goal, planner failure) retry the same waypoint this often, after this delay, before counting as a skip. Missing progress and collisions skip at once. |
 | `waypoint_timeout_s` | 600 s | Safety limit per waypoint on top of Nav2's own abort. |
 | `wake_timeout_s` | 90 s | Maximum wait for `/dock/sleep_state` = `awake` before leaving the dock. |
+| `undock_timeout_s` | 60 s | When docked, the patrol asks the dock guard to reverse out (`/dock/undock`) and sends the first goal only after `/dock/guard_state` is `CLEAR`. Fails after this time. |
 | `dock_start_timeout_s` | 5 s | Maximum wait for the docking server to accept a trigger. |
 | `max_charge_s` | 21600 s (6 h) | Stop in the dock if `FULL` is not reached. |
 | `log_dir` | `/bagheera_ws/test_logs` | One CSV per run with one row per event. Mounted to `./test_logs` on the host. |

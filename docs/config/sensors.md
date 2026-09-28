@@ -54,6 +54,8 @@ in a fixed order. States and triggers: [architecture.md](../architecture.md#dock
 
 ## `bagheera_optical_flow`: PMW3901
 
+C++ component (`bagheera_sensors::OpticalFlowNode`) in `sensor_container`.
+
 A downward-facing PMW3901 on SPI0, polled without an interrupt pin. It
 publishes raw counts and quality on `/optical_flow/raw` and a metric
 `TwistWithCovarianceStamped` for `base_link` on `/optical_flow/twist`. The EKF
@@ -73,6 +75,8 @@ fuses only its forward component.
 | `imu_topic`, `imu_max_age` | `/imu/wt901/data_raw`, 0.5 s | Gyro used for the lever-arm correction and the gate. If no gyro sample is younger than `imu_max_age`, the flow is published uncorrected (normal for the 4 s WT901 bias measurement). |
 
 ## `bagheera_wt901`: WT901 IMU
+
+C++ component (`bagheera_sensors::Wt901Node`) in `sensor_container`.
 
 A WIT Motion WT901 on I2C1. It publishes `sensor_msgs/Imu` on
 `/imu/wt901/data_raw` and, with `use_compass:=true`, `MagneticField` on
@@ -111,13 +115,14 @@ disturb the field too much. Calibration and tests: [diagnostics.md](../calibrati
 
 ## `bagheera_measurement_normalizer`
 
-Turns MowgliNext's raw messages into what standard ROS consumers expect.
+C++ component (`bagheera_sensors::MeasurementNormalizerNode`) in
+`sensor_container`. Turns MowgliNext's raw messages into what standard ROS consumers expect.
 
 | Parameter | Value | Meaning |
 |---|---|---|
 | `odom_frame_id`, `base_frame_id` | `odom`, `base_link` | Frames written into `/wheel_odom`. |
 | `axle_to_base_link_m` | 0.0 | Shift of the wheel twist from the axle to `base_link` (0 because they coincide). |
-| `imu_enabled` | false | Republish the mainboard IMU as `/imu/data`. Off: the EKF does not use it, and deserializing it in Python costs CPU. |
+| `imu_enabled` | false | Republish the mainboard IMU as `/imu/data`. Off: the EKF does not use it. |
 | `imu_frame_id` | `imu_link` | Frame for `/imu/data` when enabled. |
 | `camera_frame_id`, `camera_width`, `camera_height` | `camera_optical_frame`, 1920, 1080 | Fallback `CameraInfo` for visualization. |
 | `camera_nominal_fx/fy/cx/cy` | 960, 960, 960, 540 | Provisional pinhole model used only for Foxglove. The real calibration is `camera_fisheye.yaml`. |

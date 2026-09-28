@@ -36,6 +36,9 @@ bagheera_patrol:
     # Safety net above the BT's own abort.
     waypoint_timeout_s: 600.0
     wake_timeout_s: 90.0
+    # Docked start: the dock guard reverses out (/dock/undock) before the first
+    # Nav2 goal is sent; fail if it has not reported CLEAR within this time.
+    undock_timeout_s: 60.0
     dock_start_timeout_s: 5.0
     # Stop in the dock when FULL is not reached within this time.
     max_charge_s: 21600.0

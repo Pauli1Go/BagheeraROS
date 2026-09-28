@@ -27,9 +27,6 @@ setup(
         "console_scripts": [
             "bagheera_controller = bagheera_base.controller_teleop:main",
             "bagheera_manual_mode = bagheera_base.manual_mode:main",
-            "bagheera_measurement_normalizer = bagheera_base.measurement_normalizer:main",
-            "bagheera_optical_flow = bagheera_base.optical_flow:main",
-            "bagheera_wt901 = bagheera_base.wt901_node:main",
             "bagheera_compass = bagheera_base.compass_node:main",
             "bagheera_compass_calibrate = bagheera_base.compass_calibrate:main",
             "bagheera_heading_test = bagheera_base.heading_test:main",

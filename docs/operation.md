@@ -117,6 +117,8 @@ Start one of two modes with `{"data": true}`:
 - A waypoint Nav2 aborts is skipped; three skips in a row dock and stop the
   patrol. Aborts caused by late data (costmap timeout, TF error, planner
   failure) retry the same waypoint twice after 3 s first.
+- In the dock, the patrol wakes the robot and lets the dock guard reverse out
+  first (`UNDOCKING`); the first Nav2 goal follows once it is clear.
 - Docking is retried up to `dock_attempts` times.
 - `/patrol/status` carries JSON with state, waypoint, laps and counters.
 - Every run writes a CSV (one row per event) to `test_logs/` on the host.

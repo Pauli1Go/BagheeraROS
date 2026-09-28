@@ -186,12 +186,25 @@ def generate_launch_description():
         name="bagheera_mode",
         output="screen",
     )
-    measurement_normalizer = Node(
-        package="bagheera_base",
-        executable="bagheera_measurement_normalizer",
-        name="bagheera_measurement_normalizer",
+    # PMW3901, WT901 and the measurement normalizer are C++ components
+    # (package bagheera_sensors) in one container: one process instead of
+    # three Python interpreters with ~2-3 ms executor overhead per message.
+    sensor_container = Node(
+        package="rclcpp_components",
+        executable="component_container",
+        name="sensor_container",
         output="screen",
-        parameters=[sensor_config],
+    )
+    measurement_normalizer = LoadComposableNodes(
+        target_container="sensor_container",
+        composable_node_descriptions=[
+            ComposableNode(
+                package="bagheera_sensors",
+                plugin="bagheera_sensors::MeasurementNormalizerNode",
+                name="bagheera_measurement_normalizer",
+                parameters=[sensor_config],
+            ),
+        ],
     )
 
     # Runs the LiDAR driver as its child process and puts LiDAR, WT901,
@@ -229,26 +242,34 @@ def generate_launch_description():
         output="screen",
         parameters=[base_config],
     )
-    optical_flow = Node(
-        package="bagheera_base",
-        executable="bagheera_optical_flow",
-        name="bagheera_optical_flow",
-        output="screen",
-        parameters=[sensor_config],
+    optical_flow = LoadComposableNodes(
+        target_container="sensor_container",
+        composable_node_descriptions=[
+            ComposableNode(
+                package="bagheera_sensors",
+                plugin="bagheera_sensors::OpticalFlowNode",
+                name="bagheera_optical_flow",
+                parameters=[sensor_config],
+            ),
+        ],
         condition=IfCondition(use_optical_flow),
     )
-    wt901 = Node(
-        package="bagheera_base",
-        executable="bagheera_wt901",
-        name="bagheera_wt901",
-        output="screen",
-        parameters=[
-            sensor_config,
-            {
-                "publish_magnetometer": ParameterValue(
-                    use_compass, value_type=bool
-                )
-            },
+    wt901 = LoadComposableNodes(
+        target_container="sensor_container",
+        composable_node_descriptions=[
+            ComposableNode(
+                package="bagheera_sensors",
+                plugin="bagheera_sensors::Wt901Node",
+                name="bagheera_wt901",
+                parameters=[
+                    sensor_config,
+                    {
+                        "publish_magnetometer": ParameterValue(
+                            use_compass, value_type=bool
+                        )
+                    },
+                ],
+            ),
         ],
         condition=IfCondition(use_wt901),
     )
@@ -390,6 +411,7 @@ def generate_launch_description():
         ]
         + ([controller] if _controller_enabled(base_config) else [])
         + [
+            sensor_container,
             measurement_normalizer,
             dock_sleep,
             battery_monitor,

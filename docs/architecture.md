@@ -17,6 +17,7 @@ interact. The per-parameter reference lives in [`config/`](config/README.md).
 │   ├─ MowgliNext: hardware_bridge_node, twist_mux  (from the base image)  │
 │   ├─ BagheeraROS: bagheera_base (Python nodes, config, launch, BTs)      │
 │   ├─ BagheeraROS: bagheera_docking (C++ Nav2 dock plugin)                │
+│   ├─ BagheeraROS: bagheera_sensors (C++ PMW3901/WT901/normalizer)        │
 │   └─ third party: Nav2, robot_localization, slam_toolbox, apriltag_ros,  │
 │      YDLidar driver, camera_ros (patched), foxglove_bridge               │
 │                                                                          │
@@ -48,10 +49,11 @@ manual_control.launch.py            (compose.yaml default command)
 ├─ bagheera_mode                     keeps the firmware in manual (no blade) mode
 ├─ bagheera_controller               base.yaml               [base.yaml enabled, off]
 ├─ bagheera_battery_monitor          base.yaml
-├─ bagheera_measurement_normalizer   sensors.yaml
+├─ sensor_container (C++ components from bagheera_sensors, one process)
+│   ├─ bagheera_measurement_normalizer   sensors.yaml
+│   ├─ bagheera_optical_flow             sensors.yaml        [use_optical_flow]
+│   └─ bagheera_wt901                    sensors.yaml        [use_wt901]
 ├─ bagheera_dock_sleep               sensors.yaml (starts the YDLidar driver as child)
-├─ bagheera_optical_flow             sensors.yaml            [use_optical_flow]
-├─ bagheera_wt901                    sensors.yaml            [use_wt901]
 ├─ bagheera_compass                  sensors.yaml            [use_compass, off]
 ├─ bagheera_camera_manager           sensors.yaml (camera section) [use_camera]
 ├─ ekf_filter_node                   localization.yaml       [use_sensor_fusion]
@@ -197,9 +199,10 @@ resuming ──(Nav2 lifecycle resumed, obstacle layers on)──► awake
 any wake step failing ──► fault   (autonomy gated, teleop allowed, next wake retries)
 ```
 
-While sleeping, the LiDAR driver process is stopped, the WT901 stops polling,
-the PMW3901 is shut down (LED off), the camera cannot start and the Nav2
-navigation lifecycle is paused. Localization, map servers and the docking
+While sleeping, the LiDAR driver process is stopped (after the costmap
+obstacle layers are confirmed off, so they never see a stale `/scan`), the
+WT901 stops polling, the PMW3901 is shut down (LED off), the camera cannot
+start and the Nav2 navigation lifecycle is paused. Localization, map servers and the docking
 server keep running. Undocking and teleop only drive in `awake`.
 
 ### Docking (`/dock/status`)
@@ -215,7 +218,8 @@ server keep running. Undocking and teleop only drive in `awake`.
 
 Drives the waypoint loop from `patrol.yaml`, docks according to the mode and
 the battery level (`/battery/level`: NORMAL, LOW, CRITICAL, FULL), wakes the
-robot before leaving the dock and skips waypoints Nav2 cannot reach. Details
+robot, lets the dock guard reverse out (`UNDOCKING`, `/dock/undock`) before
+the first goal and skips waypoints Nav2 cannot reach. Details
 in [operation.md](operation.md#waypoint-patrol).
 
 ## Packages
@@ -224,10 +228,12 @@ in [operation.md](operation.md#waypoint-patrol).
 |---|---|---|
 | `src/bagheera_base` | Python (ament_python) | all Bagheera nodes, config, launch files, URDF, behavior trees, tests |
 | `src/bagheera_docking` | C++ | `bagheera_docking::TagChargingDock`, an `opennav_docking` plugin using two AprilTags |
+| `src/bagheera_sensors` | C++ | PMW3901 (SPI) and WT901 (I2C) drivers and the measurement normalizer as `rclcpp` components; ROS-free decoding in `sensor_math.hpp` with gtests |
 | `docker/` | Dockerfile + patches | image build on top of the MowgliNext image; YDLidar and camera_ros patches |
 | `tools/` | Python, shell, C | calibration, probes and diagnostics outside the launch |
 | `legacy/docking/` | Python | the previous hand-written docking controller, reference only, not built |
 
-Pure logic lives in ROS-free modules (`*_math.py`, `*_logic.py`,
-`kinematics.py`, `pmw3901.py`, `wt901_protocol.py`, …) so it can be unit
-tested without ROS.
+Pure logic lives in ROS-free modules (`*_math.py`, `*_logic.py`, …, and
+`bagheera_sensors/sensor_math.hpp` for the C++ drivers) so it can be unit
+tested without ROS. The sensor drivers are C++ because every message into a
+Python node costs ~2–3 ms of executor overhead on the Pi 4.

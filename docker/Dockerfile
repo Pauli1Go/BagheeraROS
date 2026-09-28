@@ -77,6 +77,17 @@ RUN . /opt/ros/kilted/setup.sh \
       --packages-select bagheera_docking \
       --cmake-args -DCMAKE_BUILD_TYPE=Release
 
+# C++ sensor drivers (PMW3901, WT901, measurement normalizer), also in their
+# own layer so Python-only changes do not recompile them.
+COPY src/bagheera_sensors src/bagheera_sensors
+RUN . /opt/ros/kilted/setup.sh \
+ && . /ros2_ws/install/setup.sh \
+ && . /bagheera_ws/install/setup.sh \
+ && colcon build \
+      --merge-install \
+      --packages-select bagheera_sensors \
+      --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+
 COPY src/bagheera_base src/bagheera_base
 RUN . /opt/ros/kilted/setup.sh \
  && . /ros2_ws/install/setup.sh \

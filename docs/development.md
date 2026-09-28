@@ -9,14 +9,15 @@ config/99-bagheera.rules     udev rule for /dev/mowgli
 src/bagheera_base/           Python package: nodes, config/, launch/, urdf/,
                              behavior_trees/, test/
 src/bagheera_docking/        C++ opennav_docking plugin (TagChargingDock)
+src/bagheera_sensors/        C++ PMW3901, WT901 and normalizer components, gtests
 tools/                       calibration, probes, diagnostics (not installed)
 maps/                        site data, mounted into the container, not in git
 test_logs/                   patrol CSVs and perf snapshots, not in git
 legacy/docking/              former docking controller, reference only
 ```
 
-Keep ROS-free logic in its own module (`*_math.py`, `*_logic.py`,
-`kinematics.py`, protocol decoders) so it can be tested without ROS. The node
+Keep ROS-free logic in its own module (`*_math.py`, `*_logic.py`; in C++
+`sensor_math.hpp`) so it can be tested without ROS. The node
 module only wires topics, parameters and timers.
 
 ## Applying changes on the robot
@@ -32,6 +33,7 @@ needs:
 | `compose.yaml` | `docker compose up -d` | ~30 s |
 | New executable in `setup.py`, `urdf/` | `docker compose build && docker compose up -d` | ~1 min |
 | C++ plugin `src/bagheera_docking/` | `docker compose build && docker compose up -d` | ~3 min |
+| C++ sensor drivers `src/bagheera_sensors/` | `docker compose build && docker compose up -d` | ~5 min |
 | `docker/Dockerfile`, apt packages, patches | `docker compose build && docker compose up -d` | long |
 
 Why:
@@ -72,7 +74,8 @@ without devices or network, so the running robot is not affected:
 mkdir -p /tmp/bagheera_test && cp -r src /tmp/bagheera_test/
 docker run --rm --network none -v /tmp/bagheera_test:/ws bagheera-ros:local bash -lc \
   'source /opt/ros/kilted/setup.bash && source /ros2_ws/install/setup.bash && cd /ws &&
-   colcon build --merge-install --packages-select bagheera_docking bagheera_base &&
+   colcon build --merge-install --packages-select bagheera_docking bagheera_sensors bagheera_base &&
+   colcon test --merge-install --packages-select bagheera_sensors && colcon test-result &&
    source install/setup.bash && cd src/bagheera_base && python3 -m pytest -q test'
 ```
 

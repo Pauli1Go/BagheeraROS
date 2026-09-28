@@ -47,6 +47,7 @@ from .patrol_logic import (
 
 IDLE = "IDLE"
 WAKING = "WAKING"
+UNDOCKING = "UNDOCKING"  # the dock guard reverses out before the first goal
 NAVIGATING = "NAVIGATING"
 RETRY_WAIT = "RETRY_WAIT"  # short pause before driving to the same waypoint again
 ABANDONING = "ABANDONING"  # cancelling the Nav2 goal for a CRITICAL return
@@ -55,7 +56,7 @@ CHARGING = "CHARGING"
 DOCK_PAUSE = "DOCK_PAUSE"
 FAILED = "FAILED"
 RUNNING_STATES = (
-    WAKING, NAVIGATING, RETRY_WAIT, ABANDONING, DOCKING, CHARGING, DOCK_PAUSE
+    WAKING, UNDOCKING, NAVIGATING, RETRY_WAIT, ABANDONING, DOCKING, CHARGING, DOCK_PAUSE
 )
 
 DOCK_TERMINAL = ("SUCCEEDED", "FAILED", "CANCELLED")
@@ -81,6 +82,7 @@ class Patrol(Node):
         self.declare_parameter("retry_delay_s", 3.0)
         self.declare_parameter("waypoint_timeout_s", 600.0)
         self.declare_parameter("wake_timeout_s", 90.0)
+        self.declare_parameter("undock_timeout_s", 60.0)
         self.declare_parameter("dock_start_timeout_s", 5.0)
         self.declare_parameter("max_charge_s", 21600.0)
         self.declare_parameter("log_dir", "/bagheera_ws/test_logs")
@@ -95,6 +97,7 @@ class Patrol(Node):
         self._retry_delay = float(self.get_parameter("retry_delay_s").value)
         self._waypoint_timeout = float(self.get_parameter("waypoint_timeout_s").value)
         self._wake_timeout = float(self.get_parameter("wake_timeout_s").value)
+        self._undock_timeout = float(self.get_parameter("undock_timeout_s").value)
         self._dock_start_timeout = float(self.get_parameter("dock_start_timeout_s").value)
         self._max_charge = float(self.get_parameter("max_charge_s").value)
         self._log_dir = str(self.get_parameter("log_dir").value)
@@ -110,6 +113,7 @@ class Patrol(Node):
         self._dock_seen_active = False
         self._stop_after_dock = False
         self._last_wake = 0.0
+        self._last_undock_request = 0.0
         self._goal_handle = None
         self._goal_token = 0
         self._log_path: str | None = None
@@ -118,6 +122,7 @@ class Patrol(Node):
         self._voltage: float | None = None
         self._docked = False
         self._sleep_state = "awake"
+        self._guard_state: str | None = None
         self._dock_status: dict = {}
 
         latched = QoSProfile(
@@ -130,6 +135,7 @@ class Patrol(Node):
         self._dock_trigger_pub = self.create_publisher(Bool, "/dock/trigger", 10)
         self._dock_cancel_pub = self.create_publisher(Bool, "/dock/cancel", 10)
         self._wake_pub = self.create_publisher(Bool, "/dock/wake", 10)
+        self._undock_pub = self.create_publisher(Bool, "/dock/undock", 10)
         self._nav = ActionClient(self, NavigateToPose, "/navigate_to_pose")
 
         self.create_subscription(Bool, "/patrol/start_charge", self._on_start_charge, 10)
@@ -139,6 +145,7 @@ class Patrol(Node):
         self.create_subscription(Float32, "/battery/voltage", self._on_voltage, 10)
         self.create_subscription(Bool, "/docked", self._on_docked, latched)
         self.create_subscription(String, "/dock/sleep_state", self._on_sleep_state, latched)
+        self.create_subscription(String, "/dock/guard_state", self._on_guard_state, latched)
         self.create_subscription(String, "/dock/status", self._on_dock_status, latched)
         self.create_subscription(TwistStamped, "/cmd_vel_teleop", self._on_teleop, 10)
         self.create_subscription(PoseStamped, "/goal_pose", self._on_foreign_goal, 10)
@@ -176,6 +183,11 @@ class Patrol(Node):
     def _on_sleep_state(self, message: String) -> None:
         self._sleep_state = message.data
         if self._state == WAKING:
+            self._tick()
+
+    def _on_guard_state(self, message: String) -> None:
+        self._guard_state = message.data
+        if self._state == UNDOCKING:
             self._tick()
 
     def _on_dock_status(self, message: String) -> None:
@@ -245,6 +257,24 @@ class Patrol(Node):
             self._tick()
         else:
             self._send_goal()
+
+    def _undock_or_navigate(self) -> None:
+        """Leave the dock first, then send the goal.
+
+        A goal sent while docked only made the dock guard reverse out, and
+        Nav2 counted the blocked commands as missing progress and spent one
+        of its recoveries on it.
+        """
+        if not self._docked:
+            self._send_goal()
+            return
+        if self._guard_state is None:
+            self.get_logger().warn("No /dock/guard_state; the goal itself triggers undocking")
+            self._send_goal()
+            return
+        self._last_undock_request = time.monotonic()
+        self._undock_pub.publish(Bool(data=True))
+        self._set_state(UNDOCKING, "reversing out of the dock")
 
     def _send_goal(self) -> None:
         plan = self._plan
@@ -424,7 +454,7 @@ class Patrol(Node):
         if self._state == WAKING:
             if self._sleep_state == "awake":
                 self._log("awake", "", duration=elapsed)
-                self._send_goal()
+                self._undock_or_navigate()
             elif self._sleep_state == "fault":
                 self._fail("dock wake-up reported a fault")
             elif elapsed > self._wake_timeout:
@@ -432,6 +462,17 @@ class Patrol(Node):
             elif self._sleep_state == "sleeping" and now - self._last_wake > 5.0:
                 self._last_wake = now
                 self._wake_pub.publish(Bool(data=True))
+        elif self._state == UNDOCKING:
+            if self._guard_state == "CLEAR":
+                self._log("undocked", "", duration=elapsed)
+                self._send_goal()
+            elif self._guard_state == "FAULT":
+                self._fail("undocking failed (dock guard FAULT)")
+            elif elapsed > self._undock_timeout:
+                self._fail("undocking timed out")
+            elif self._guard_state == "DOCKED_IDLE" and now - self._last_undock_request > 2.0:
+                self._last_undock_request = now
+                self._undock_pub.publish(Bool(data=True))
         elif self._state == NAVIGATING and elapsed > self._waypoint_timeout:
             self.get_logger().warn("Waypoint timeout; cancelling the goal")
             if self._goal_handle is not None:

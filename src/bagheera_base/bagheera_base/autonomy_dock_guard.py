@@ -57,6 +57,9 @@ class AutonomyDockGuard(Node):
         # be gated then, or Nav2 moves the robot inside the dock.
         self.declare_parameter("contact_voltage_threshold", 0.5)
         self.declare_parameter("command_timeout_s", 0.5)
+        # A /dock/undock request stays valid this long while waiting for the
+        # wake-up and fresh odometry.
+        self.declare_parameter("undock_request_timeout_s", 60.0)
         self.declare_parameter("reverse_distance_m", 0.80)
         self.declare_parameter("reverse_speed_mps", 0.08)
         # Slow but steady reversing is fine; abort only on a stall, with a
@@ -160,6 +163,13 @@ class AutonomyDockGuard(Node):
         self._odom_subscription = None
         self._odom_wanted_since = 0.0
         self._wake_publisher = self.create_publisher(Bool, "/dock/wake", 10)
+        # Explicit undock request (bagheera_patrol): leave the dock before a
+        # Nav2 goal exists, so no Nav2 recovery is spent on the manoeuvre.
+        self._undock_timeout = float(self.get_parameter("undock_request_timeout_s").value)
+        self._undock_requested_at: float | None = None
+        self.create_subscription(Bool, "/dock/undock", self._on_undock, 10)
+        self._state_publisher = self.create_publisher(String, "/dock/guard_state", dock_qos)
+        self._published_state: str | None = None
         self.create_subscription(String, "/dock/sleep_state", self._on_sleep_state, dock_qos)
         self.create_subscription(
             Bool,
@@ -265,7 +275,7 @@ class AutonomyDockGuard(Node):
             self._state == "DOCKED_IDLE"
             and self._sleep_state == "awake"
             and not self._localization_violation
-            and self._command_is_active(now)
+            and (self._command_is_active(now) or self._undock_requested(now))
         )
 
     def _want_odom(self, wanted: bool) -> None:
@@ -290,6 +300,21 @@ class AutonomyDockGuard(Node):
     def _idle_tick(self) -> None:
         if self._active_timer.is_canceled():
             self._tick()
+        self._publish_state()
+
+    def _publish_state(self) -> None:
+        if self._state != self._published_state:
+            self._published_state = self._state
+            self._state_publisher.publish(String(data=self._state))
+
+    def _on_undock(self, message: Bool) -> None:
+        if message.data and self._state in ("DOCKED_IDLE", "WAITING_FOR_POWER"):
+            self._undock_requested_at = time.monotonic()
+            self._tick()
+
+    def _undock_requested(self, now: float) -> bool:
+        requested = self._undock_requested_at
+        return requested is not None and now - requested <= self._undock_timeout
 
     def _publish_docked(self) -> None:
         if self._docked is not None:
@@ -331,6 +356,7 @@ class AutonomyDockGuard(Node):
 
     def _start_reverse(self, now: float) -> None:
         assert self._odom is not None
+        self._undock_requested_at = None
         pose = self._odom.pose.pose
         self._start_x = pose.position.x
         self._start_y = pose.position.y
@@ -404,7 +430,7 @@ class AutonomyDockGuard(Node):
 
         if self._state == "DOCKED_IDLE":
             self._publish()
-            if not self._command_is_active(now):
+            if not self._command_is_active(now) and not self._undock_requested(now):
                 return
             if self._sleep_state != "awake":
                 # Sensors asleep or AMCL not yet re-anchored to the dock:
