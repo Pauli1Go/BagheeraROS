@@ -385,8 +385,9 @@ docking_server:
     # Camera start (~2.4 s) plus AprilTag latency (~0.9 s) on the Pi.
     initial_perception_timeout: 10.0
     dock_approach_timeout: 40.0
-    # Includes bagheera_dock_trigger's straight final approach (~3 s) and the
-    # charger ramp to the debounced 10 V /docked (several seconds).
+    # Includes bagheera_dock_trigger's straight final approach (~3 s, at most
+    # final_timeout_s 12 s) and the charger ramp to the debounced 10 V
+    # /docked (several seconds).
     wait_charge_timeout: 20.0
     undock_linear_tolerance: 0.05
     undock_angular_tolerance: 0.05
@@ -404,8 +405,11 @@ docking_server:
       # Staging pose = robot pose measured on 2026-09-23 with both tags in
       # view: map (1.218, 1.252, 1.607 rad), expressed relative to home_dock
       # (recomputed for the corrected dock yaw; same map pose as before).
+      # y shifted 8.7 cm right on 2026-09-29: in 10 docking runs the robot
+      # reached staging 6-12 cm (mean 8.7) left of the tag-measured axis
+      # and swung up to 25 deg correcting it before the pre-dock line.
       staging_x_offset: -0.6325
-      staging_y_offset: 0.0076
+      staging_y_offset: -0.0794
       staging_yaw_offset: -0.0170
       # ID 1 (dock) -> base_link at electrical contact, in the dock frame.
       # x: the docked camera image shows ID 1's 26.67 mm border ~840 px wide,
@@ -518,7 +522,8 @@ bagheera_dock_trigger:
     # one skips the drive and Nav2 retries from the staging pose.
     final_max_lateral_m: 0.025
     final_max_yaw_rad: 0.17453292519943295  # 10 deg
-    final_timeout_s: 8.0
+    # Upper limit: 17 cm took longer than 8 s when the wheels crawled.
+    final_timeout_s: 12.0
     contact_voltage: 0.5
 
 keepout_filter_mask_server:

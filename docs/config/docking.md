@@ -67,7 +67,7 @@ Two AprilTags of family `tagStandard41h12`:
 
 | Parameter | Value | Meaning |
 |---|---|---|
-| `staging_x_offset`, `staging_y_offset`, `staging_yaw_offset` | −0.6325 m, 0.0076 m, −0.017 rad | Staging pose relative to the dock pose (in the dock frame: x along the dock axis). About 0.63 m in front of the dock with both tags in view. |
+| `staging_x_offset`, `staging_y_offset`, `staging_yaw_offset` | −0.6325 m, −0.0794 m, −0.017 rad | Staging pose relative to the dock pose (in the dock frame: x along the dock axis, y left). About 0.63 m in front of the dock with both tags in view. y was moved 8.7 cm right because the robot consistently reached staging that far left of the tag-measured axis. |
 | `external_detection_translation_x` | −0.468 m | Offset from tag ID 1 to `base_link` at contact, along the dock axis. |
 | `external_detection_translation_y` | 0.002 m | Same, sideways. |
 | `axis_yaw_offset` | 0.0055 rad | Angle between ID 0's direction and the robot heading in the dock. Depends on the wall ID 0 hangs on: `maps/dock.yaml` (`axis_yaw_offset_rad`, written by `bagheera_dock_setup`) overrides it. |
@@ -142,5 +142,5 @@ staging pose, and drives the straight final approach.
 | `final_trim_max_rad`, `final_trim_distance_m` | 4°, 0.25 m | Small heading trim toward the dock axis. |
 | `final_front_offset_m` | 0.47 m | Charging contacts ahead of `base_link` (for logging). |
 | `final_max_lateral_m`, `final_max_yaw_rad` | 0.025 m, 10° | Hand-over limits; larger offsets retry from staging. |
-| `final_timeout_s` | 8 s | |
+| `final_timeout_s` | 12 s | Upper limit for the straight final approach. |
 | `contact_voltage` | 0.5 V | Stop at first contact. |

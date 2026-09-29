@@ -57,10 +57,15 @@ hardware_bridge:
     max_mps: 0.5
     wheel_track: 0.32
     ticks_per_meter: 268.1
-    wheel_pid_kp: 0.2
-    wheel_pid_ki: 0.092
+    # Per-wheel velocity loop in the firmware (units: PWM per m/s, PWM per
+    # m/s*s, PWM). MowgliNext's pre-calibration defaults (kp 0.2, ki 0.092)
+    # leave it open-loop: at 4-7 cm/s the feedforward (~14 PWM at 5 cm/s)
+    # did not overcome static friction and the wheels reached only 40-60 %
+    # of the commanded speed (2026-09-29). A real PI closes that gap.
+    wheel_pid_kp: 80.0
+    wheel_pid_ki: 400.0
     wheel_pid_kd: 0.01
-    wheel_pid_integral_limit: 15.0
+    wheel_pid_integral_limit: 40.0
     wheel_pid_pwm_per_mps: 282.135
     # Bagheera office-floor calibration: integral action caused a 5-6 s yaw
     # limit cycle. A proportional-only loop damps wheel mismatch without

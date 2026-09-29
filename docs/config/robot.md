@@ -59,8 +59,8 @@ to measure these values: [calibration.md](../calibration.md).
 | `ticks_per_meter` | 268.1 | Encoder scale for odometry and for the firmware's wheel-speed loop. **Calibrate per robot** ([calibration.md](../calibration.md#2-wheel-odometry)). |
 | `max_mps` | 0.5 m/s | Wheel-speed cap sent to the firmware (the firmware can only lower its own limit). |
 | `min_linear_vel` | 0.05 m/s | Forward commands with a magnitude below this are set to 0 (motor deadband). |
-| `wheel_pid_kp/ki/kd` | 0.2 / 0.092 / 0.01 | Per-wheel velocity PID in the firmware. |
-| `wheel_pid_integral_limit` | 15.0 | Anti-windup limit of that PID. |
+| `wheel_pid_kp/ki/kd` | 80 / 400 / 0.01 | Per-wheel velocity PID in the firmware (PWM per m/s, per m/s·s, per m/s²). MowgliNext's pre-calibration defaults 0.2 / 0.092 leave the loop open: at 4–7 cm/s the wheels reached only 40–60 % of the commanded speed. |
+| `wheel_pid_integral_limit` | 40.0 | Anti-windup limit of the integral term (PWM). |
 | `wheel_pid_pwm_per_mps` | 282.135 | Feed-forward PWM per m/s. |
 | `yaw_loop_enabled` | true | Firmware yaw-rate loop on the mainboard gyro. It trims the wheel speeds so the robot turns at the commanded rate. |
 | `yaw_kp`, `yaw_ki` | 0.30, 0.0 | Yaw-loop gains. Bagheera uses P only: an integral term caused a 5–6 s weave on its floor. |
