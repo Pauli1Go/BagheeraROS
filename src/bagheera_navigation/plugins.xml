@@ -1,0 +1,11 @@
+<class_libraries>
+  <library path="latched_goal_checker">
+    <class type="bagheera_navigation::LatchedGoalChecker"
+           base_class_type="nav2_core::GoalChecker">
+      <description>
+        SimpleGoalChecker whose "position reached" state survives the path
+        updates of periodic replanning, with a release distance (hysteresis).
+      </description>
+    </class>
+  </library>
+</class_libraries>

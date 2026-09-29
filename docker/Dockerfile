@@ -88,6 +88,16 @@ RUN . /opt/ros/kilted/setup.sh \
       --packages-select bagheera_sensors \
       --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
 
+# Nav2 plugins (latched goal checker), own layer like the other C++ packages.
+COPY src/bagheera_navigation src/bagheera_navigation
+RUN . /opt/ros/kilted/setup.sh \
+ && . /ros2_ws/install/setup.sh \
+ && . /bagheera_ws/install/setup.sh \
+ && colcon build \
+      --merge-install \
+      --packages-select bagheera_navigation \
+      --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+
 COPY src/bagheera_base src/bagheera_base
 RUN . /opt/ros/kilted/setup.sh \
  && . /ros2_ws/install/setup.sh \

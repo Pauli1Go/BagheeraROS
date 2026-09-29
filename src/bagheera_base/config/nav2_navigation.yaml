@@ -53,19 +53,26 @@ controller_server:
       # In-place rotations are legitimate progress: a 180 deg turn at
       # 0.5 rad/s takes ~7 s. 8 s fired BackUp on open floor mid-rotation.
       movement_time_allowance: 20.0
+    # bagheera_navigation::LatchedGoalChecker instead of SimpleGoalChecker:
+    # every 1 Hz replan resets SimpleGoalChecker's "xy reached" state (and
+    # RPP's), so a robot standing at the edge of the xy tolerance dropped
+    # out of its final turn, turned toward the goal point, drove and turned
+    # back (2026-09-29). The latch survives new paths to the same goal and
+    # is only released beyond xy_release_tolerance; while latched RPP gets
+    # that larger tolerance and keeps turning to the goal heading.
     goal_checker:
-      plugin: nav2_controller::SimpleGoalChecker
+      plugin: bagheera_navigation::LatchedGoalChecker
       xy_goal_tolerance: 0.10
       yaw_goal_tolerance: 0.15
-      stateful: true
+      xy_release_tolerance: 0.20
     # Only for the docking staging pose (behavior_trees/navigate_to_staging.xml):
     # the same precision as the docking server's own return to staging.
     precise_goal_checker:
-      plugin: nav2_controller::SimpleGoalChecker
+      plugin: bagheera_navigation::LatchedGoalChecker
       xy_goal_tolerance: 0.05
       # bagheera_dock_trigger then turns the last degrees slowly (to 1.5 deg).
       yaw_goal_tolerance: 0.08726646259971647  # 5 deg
-      stateful: true
+      xy_release_tolerance: 0.12
     FollowPath:
       # RotationShim is normal path alignment, not a Spin recovery. It keeps
       # deliberate in-place turns at a useful speed, then delegates curves to

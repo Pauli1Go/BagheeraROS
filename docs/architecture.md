@@ -230,6 +230,7 @@ in [operation.md](operation.md#waypoint-patrol).
 | `src/bagheera_base` | Python (ament_python) | all Bagheera nodes, config, launch files, URDF, behavior trees, tests |
 | `src/bagheera_docking` | C++ | `bagheera_docking::TagChargingDock`, an `opennav_docking` plugin using two AprilTags |
 | `src/bagheera_sensors` | C++ | PMW3901 (SPI) and WT901 (I2C) drivers and the measurement normalizer as `rclcpp` components; ROS-free decoding in `sensor_math.hpp` with gtests |
+| `src/bagheera_navigation` | C++ | Nav2 plugins: `LatchedGoalChecker` (goal checker whose "position reached" survives replanning); ROS-free logic in `latched_goal.hpp` with gtests |
 | `docker/` | Dockerfile + patches | image build on top of the MowgliNext image; YDLidar and camera_ros patches |
 | `tools/` | Python, shell, C | calibration, probes and diagnostics outside the launch |
 | `legacy/docking/` | Python | the previous hand-written docking controller, reference only, not built |

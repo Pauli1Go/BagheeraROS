@@ -83,12 +83,22 @@ undocking and teleop use their own limits.
 
 ### Goal checkers
 
-| Checker | xy / yaw tolerance | Used by |
-|---|---|---|
-| `goal_checker` | 0.10 m / 0.15 rad | normal goals (`navigate_no_spin.xml`) |
-| `precise_goal_checker` | 0.05 m / 5° | docking staging pose (`navigate_to_staging.xml`) |
+Both use `bagheera_navigation::LatchedGoalChecker`.
 
-`stateful: true`: once the position is reached, only the heading is checked.
+| Checker | xy / yaw tolerance | Release distance | Used by |
+|---|---|---|---|
+| `goal_checker` | 0.10 m / 0.15 rad | 0.20 m | normal goals (`navigate_no_spin.xml`) |
+| `precise_goal_checker` | 0.05 m / 5° | 0.12 m | docking staging pose (`navigate_to_staging.xml`) |
+
+Once the position is within the xy tolerance it is latched and only the
+heading is checked. Unlike Nav2's `SimpleGoalChecker` (`stateful: true`) the
+latch survives the reset that every new path of the 1 Hz replanning causes.
+It is released only for a different goal (moved > `same_goal_xy` 0.10 m or
+`same_goal_yaw` 0.20 rad) or when the robot is farther away than
+`xy_release_tolerance`. While latched the checker reports the release
+distance as its xy tolerance, so RPP (which resets its own "xy reached"
+state with every new path as well) keeps turning to the goal heading instead
+of turning toward the goal point, driving and turning back.
 
 ### `FollowPath` (Rotation Shim → RPP)
 

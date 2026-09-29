@@ -51,6 +51,7 @@ Foxglove ──WebSocket──► Raspberry Pi 4 / Docker (ROS 2 Kilted)
                         ├─ MowgliNext hardware_bridge + twist_mux
                         ├─ bagheera_base: drivers, EKF, AMCL, Nav2, docking, patrol
                         ├─ bagheera_sensors: C++ optical-flow/IMU drivers
+                        ├─ bagheera_navigation: C++ Nav2 goal checker
                         └─ bagheera_docking: AprilTag dock plugin
                                │ USB /dev/mowgli
                         YardForce mainboard, MowgliNext firmware 1.9.10
